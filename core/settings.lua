@@ -5,7 +5,7 @@
 local gui      = require "gui"
 local settings = {
     enabled   = false,
-    use_d4a   = true,
+    use_d4a   = false,
     use_alfred= true,
 
     -- Run type toggles

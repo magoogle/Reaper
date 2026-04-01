@@ -63,7 +63,7 @@ gui.elements = {
     dungeon_reset_enabled  = cb(false,      "dr_en"),
     dungeon_reset_interval = si(1, 200, 10, "dr_int"),
 
-    use_d4a          = cb(true,  "use_d4a"),
+    use_d4a          = cb(false, "use_d4a"),
     use_alfred       = cb(true,  "alfred"),
     show_alignment   = cb(false, "show_align"),
 
