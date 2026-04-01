@@ -281,10 +281,6 @@ function map_nav.update()
     end
 
     -- ---- WAIT_MAP ----
-    -- Brief pause after interact_object so the map UI has time to open.
-    -- The map opens quickly (~0.3-0.5s); 1s gives comfortable headroom.
-    -- Do NOT re-interact here — calling interact_object while the map is
-    -- already open would close it before the click fires.
     if s.state == STATE.WAIT_MAP then
         if elapsed() >= T_MAP_OPEN then
             console.print("[MapNav] Map should be open - clicking boss.")
@@ -294,11 +290,8 @@ function map_nav.update()
     end
 
     -- ---- CLICK_BOSS ----
-    -- Single click on the boss icon.  We have no in-game feedback on whether
-    -- it landed — zone detection in WAIT_ZONE is the only confirmation.
     if s.state == STATE.CLICK_BOSS then
         click_boss(s.boss_id, false)
-        console.print("[MapNav] Clicked boss: " .. s.boss_id)
         if TWO_CLICK[s.boss_id] then
             set_state(STATE.CLICK_BOSS2)
         else
@@ -308,24 +301,18 @@ function map_nav.update()
     end
 
     -- ---- CLICK_BOSS2 (Zir only) ----
-    -- Wait for the portal icon to appear, then single click.
     if s.state == STATE.CLICK_BOSS2 then
         if elapsed() >= T_PRE_ACCEPT then
             click_boss(s.boss_id, true)
-            console.print("[MapNav] Clicked boss step 2.")
             set_state(STATE.WAIT_ACCEPT)
         end
         return
     end
 
     -- ---- WAIT_ACCEPT ----
-    -- Wait T_PRE_ACCEPT seconds for the confirm dialog to appear, then click
-    -- Accept exactly once.  After this, nothing happens until zone loads or
-    -- the timeout expires — there are no retries on individual clicks.
     if s.state == STATE.WAIT_ACCEPT then
         if elapsed() >= T_PRE_ACCEPT then
             click_accept()
-            console.print("[MapNav] Clicked Accept.")
             console.print(string.format(
                 "[MapNav] Waiting up to %.0fs for boss zone — no further actions.", T_ZONE))
             set_state(STATE.WAIT_ZONE)
