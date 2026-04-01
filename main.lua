@@ -3,14 +3,13 @@
 --  by Magoogle
 --
 --  Flow per run:
---    1. Write TELEPORT_X to command.txt for D4 Assistant
---    2. Wait for D4 Assistant to teleport, then walk to entrance
---    3. Navigate to altar and interact to summon the boss
---    4. Kill the boss (your combat script handles casting)
---    5. Open the boss chest
---    6. Decrement run count by 1
---    7. When run count hits 0, move to the next boss
---    8. When all bosses are done, disable
+--    1. Teleport directly to boss dungeon
+--    2. Navigate to altar and interact to summon the boss
+--    3. Kill the boss (your combat script handles casting)
+--    4. Open the boss chest
+--    5. Decrement run count by 1
+--    6. When run count hits 0, move to the next boss
+--    7. When all bosses are done, disable
 -- ============================================================
 
 local gui          = require "gui"
@@ -140,8 +139,6 @@ end)
 -- Render
 -- -------------------------------------------------------
 on_render(function()
-    gui.render_overlay()
-
     local lp = get_local_player()
     if not lp or not settings.enabled then return end
 

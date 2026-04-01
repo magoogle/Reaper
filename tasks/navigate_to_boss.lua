@@ -1,14 +1,15 @@
 -- ============================================================
 --  Reaper - tasks/navigate_to_boss.lua
 --
---  Flow (D4Assistant mode, default):
---    D4A_TELEPORT → write command.txt, wait for D4Assistant to teleport
+--  Flow (material runs):
+--    MAP_NAV      → teleport_to_boss_dungeon via map_nav.lua
 --    PATHWALKING  → walk recorded path to altar
 --    WALKING      → walk to dungeon entrance portal
 --    ENTERING     → interact with portal to enter
 --
---  Flow (map-click fallback, use_d4a disabled):
---    MAP_NAV      → delegate to core/map_nav.lua (waypoint → map click → boss)
+--  Flow (sigil runs):
+--    USE_SIGIL    → activate sigil item, confirm dialog
+--    WAIT_PORTAL  → wait for zone to change to boss dungeon
 --    (then same PATHWALKING / WALKING / ENTERING)
 -- ============================================================
 
@@ -17,8 +18,6 @@ local enums        = require "data.enums"
 local explorerlite = require "core.explorerlite"
 local pathwalker   = require "core.pathwalker"
 local map_nav      = require "core.map_nav"
-local d4a          = require "core.d4a_command"
-local settings     = require "core.settings"
 local rotation     = require "core.boss_rotation"
 local tracker      = require "core.tracker"
 
@@ -69,8 +68,6 @@ end
 -- -------------------------------------------------------
 local function in_target_zone(boss)
     local zone = utils.get_zone()
-    -- For sigil runs the lair dungeon zone won't match the boss zone_prefix,
-    -- so accept any lair boss zone as valid
     if boss.run_type == "sigil" then
         return zone:find("BloodyLair") ~= nil
             or zone:find("S12_Boss")   ~= nil
@@ -114,20 +111,18 @@ local function find_sigil_for_boss(boss_id)
     for _, item in ipairs(keys) do
         local ok_sno, sno = pcall(function() return item:get_sno_id() end)
         if ok_sno and sno == SIGIL_SNO then
-            -- Track the first sigil as fallback
             if not first_sigil then first_sigil = item end
 
             local ok_d, display = pcall(function() return item:get_display_name() end)
             if ok_d and display then
                 local mapped = mats.boss_from_display(display)
                 if mapped == boss_id then
-                    return item  -- exact match
+                    return item
                 end
             end
         end
     end
 
-    -- No exact match — return first available sigil (unmapped location)
     return first_sigil
 end
 
@@ -135,35 +130,29 @@ end
 -- State machine
 -- -------------------------------------------------------
 local STATE = {
-    IDLE          = "IDLE",
-    USE_SIGIL     = "USE_SIGIL",      -- activate sigil item
-    CONFIRM_SIGIL = "CONFIRM_SIGIL",  -- confirm consume dialog, send D4A command
-    WAIT_PORTAL   = "WAIT_PORTAL",    -- wait for zone to change to boss dungeon
-    D4A_TELEPORT  = "D4A_TELEPORT",   -- waiting for D4Assistant to teleport us
-    MAP_NAV       = "MAP_NAV",        -- map_nav handles waypoint + click (fallback)
-    PATHWALKING   = "PATHWALKING",
-    WALKING      = "WALKING",
-    ENTERING     = "ENTERING",
+    IDLE        = "IDLE",
+    USE_SIGIL   = "USE_SIGIL",    -- activate sigil item, confirm dialog
+    WAIT_PORTAL = "WAIT_PORTAL",  -- wait for zone to change to boss dungeon
+    MAP_NAV     = "MAP_NAV",      -- teleport via map_nav.lua
+    PATHWALKING = "PATHWALKING",
+    WALKING     = "WALKING",
+    ENTERING    = "ENTERING",
 }
 
-local T_CONFIRM    = 0.8    -- wait after use_item before confirming
-local T_PORTAL_MAX = 60.0   -- max wait for D4A to teleport us into the dungeon
+local T_CONFIRM    = 0.8   -- wait after use_item before confirming
+local T_PORTAL_MAX = 60.0  -- max wait for zone after sigil use
+local T_SETTLE     = 2.5
+local T_ENTER      = 15.0
 
 local nav = {
     state          = STATE.IDLE,
     target_boss    = nil,
-    phase_start    = -999,  -- initialised far in the past so no stale timeouts
+    phase_start    = -999,
     attempts       = 0,
     max_attempts   = 5,
     last_enter_try = 0,
     path_exhausted = false,
-    d4a_sent       = false,
 }
-
-local T_ZONE      = 45.0
-local T_D4A_RETRY = 8.0
-local T_SETTLE    = 2.5
-local T_ENTER     = 15.0
 
 local function now() return get_time_since_inject() end
 local function set_state(s) nav.state = s; nav.phase_start = now() end
@@ -171,10 +160,9 @@ local function set_state(s) nav.state = s; nav.phase_start = now() end
 local function reset_nav()
     nav.state          = STATE.IDLE
     nav.target_boss    = nil
-    nav.phase_start    = now()  -- always current so timeout checks start fresh
+    nav.phase_start    = now()
     nav.attempts       = 0
     nav.path_exhausted = false
-    nav.d4a_sent       = false
     map_nav.reset()
     pathwalker.stop_walking()
 end
@@ -193,15 +181,13 @@ function task.shouldExecute()
     if not boss then return false end
     if rotation.is_done() then return false end
 
-    -- Clear path_exhausted after death
     if tracker.just_revived then
         nav.path_exhausted   = false
         tracker.just_revived = false
         console.print("[Reaper] Post-revive: re-enabling path walk.")
     end
 
-    -- While map_nav is actively running, always execute so map_nav.update()
-    -- is called every tick and zone detection works regardless of altar state.
+    -- Keep running every tick while map_nav is active so zone detection works
     if nav.state == STATE.MAP_NAV then return true end
 
     if tracker.altar_activated then return false end
@@ -209,8 +195,6 @@ function task.shouldExecute()
     if in_target_zone(boss) and utils.get_altar() ~= nil then return false end
 
     if in_target_zone(boss) then
-        -- For sigil runs with no recorded path, stay active so IDLE can
-        -- use explorerlite to find the altar
         if boss.run_type == "sigil" then
             if nav.state == STATE.IDLE or nav.state == STATE.PATHWALKING then
                 return true
@@ -237,16 +221,14 @@ function task.Execute()
     if not boss then return end
     local t = now()
 
-    -- ---- IDLE: decide first step ----
+    -- ---- IDLE ----
     if nav.state == STATE.IDLE then
         nav.target_boss    = boss
         nav.attempts       = 0
         nav.path_exhausted = false
-        nav.d4a_sent       = false
 
         if in_target_zone(boss) then
             if utils.get_altar() ~= nil then reset_nav(); return end
-            -- For sigil runs already in the lair, explore toward the altar
             if boss.run_type == "sigil" then
                 console.print("[Reaper] In sigil lair — exploring for altar.")
                 explorerlite:set_custom_target(enums.positions.getBossRoomPosition(boss.zone_prefix))
@@ -264,7 +246,7 @@ function task.Execute()
             return
         end
 
-        -- Sigil run: activate the sigil, don't use D4A teleport
+        -- Sigil run: activate the sigil
         if boss.run_type == "sigil" then
             local sigil = find_sigil_for_boss(boss.id)
             if not sigil then
@@ -284,52 +266,30 @@ function task.Execute()
             return
         end
 
-        if settings.use_d4a then
-            local sent = d4a.send_teleport(boss.id)
-            if sent then
-                console.print(string.format("[Reaper] D4A teleport sent for %s.", boss.id))
-                nav.d4a_sent = true
-            else
-                console.print("[Reaper] D4A command failed – will retry.")
-            end
-            set_state(STATE.D4A_TELEPORT)
-        else
-            map_nav.start(boss.id, boss.zone_prefix, boss.run_type == "sigil")
-            set_state(STATE.MAP_NAV)
-        end
+        -- Material run: teleport directly to boss dungeon
+        map_nav.start(boss.id, boss.zone_prefix, false)
+        set_state(STATE.MAP_NAV)
         return
     end
 
-    -- ---- USE_SIGIL: wait then confirm the consume dialog ----
+    -- ---- USE_SIGIL: confirm the consume dialog ----
     if nav.state == STATE.USE_SIGIL then
         if (t - nav.phase_start) >= T_CONFIRM then
             console.print("[Reaper] Confirming sigil notification...")
             utility.confirm_sigil_notification()
-            set_state(STATE.CONFIRM_SIGIL)
-        end
-        return
-    end
-
-    -- ---- CONFIRM_SIGIL: wait a moment then send D4A to click map ----
-    if nav.state == STATE.CONFIRM_SIGIL then
-        if (t - nav.phase_start) >= 1.0 then
-            console.print("[Reaper] Sending D4A START_NMD_SKIP_SIGIL...")
-            d4a.send_start_nmd_skip_sigil()
             set_state(STATE.WAIT_PORTAL)
         end
         return
     end
 
-    -- ---- WAIT_PORTAL: wait for zone to change to boss dungeon ----
+    -- ---- WAIT_PORTAL: wait for zone to change after sigil use ----
     if nav.state == STATE.WAIT_PORTAL then
-        -- Check if we've loaded into a boss zone
         if in_target_zone(boss) then
             console.print("[Reaper] Entered sigil dungeon: " .. utils.get_zone())
             reset_nav()
             return
         end
 
-        -- Also check for generic lair boss zone pattern
         local zone = utils.get_zone()
         if zone:find("Boss_WT") or zone:find("Boss_Kehj") or zone:find("S12_Boss") then
             console.print("[Reaper] Entered boss zone: " .. zone)
@@ -346,62 +306,16 @@ function task.Execute()
                 rotation.advance()
                 reset_nav()
             else
-                -- Retry D4A command
-                d4a.send_start_nmd_skip_sigil()
                 nav.phase_start = t
             end
         end
         return
     end
 
-    -- ---- D4A_TELEPORT: wait for D4Assistant to teleport us ----
-    if nav.state == STATE.D4A_TELEPORT then
-        -- Success: we arrived in the target zone
-        if in_target_zone(boss) then
-            console.print("[Reaper] D4A teleport arrived: " .. utils.get_zone())
-            nav.attempts   = 0
-            nav.d4a_sent   = false
-            if needs_path_walk(boss.id) then
-                pathwalker.start_walking_path_with_points(
-                    pick_best_path(boss.id), boss.id .. "_path", false)
-                set_state(STATE.PATHWALKING)
-            else
-                set_state(STATE.WALKING)
-            end
-            return
-        end
-
-        local elapsed = t - nav.phase_start
-
-        -- Retry: resend command if D4A consumed it but zone never arrived
-        if elapsed >= T_D4A_RETRY then
-            nav.attempts = nav.attempts + 1
-            console.print(string.format("[Reaper] D4A teleport attempt %d/%d timed out – retrying.",
-                nav.attempts, nav.max_attempts))
-            if nav.attempts >= nav.max_attempts then
-                console.print("[Reaper] D4A teleport giving up after " .. nav.max_attempts .. " attempts.")
-                reset_nav()
-                return
-            end
-            local sent = d4a.send_teleport(boss.id)
-            if sent then
-                console.print(string.format("[Reaper] D4A retry %d sent for %s.", nav.attempts, boss.id))
-                nav.d4a_sent = true
-            end
-            nav.phase_start = t  -- reset timer for next wait period
-        end
-        return
-    end
-
-    -- ---- MAP_NAV: drive map_nav state machine (fallback mode) ----
+    -- ---- MAP_NAV: drive teleport state machine ----
     if nav.state == STATE.MAP_NAV then
         map_nav.update()
 
-        -- map_nav signals DONE when it detects the boss zone internally (every
-        -- tick in WAIT_ZONE), or we catch it here as a belt-and-suspenders check.
-        -- Reset to IDLE and let the normal IDLE-in-zone logic decide what to do
-        -- next (pathwalk if a path exists, or yield to interact_altar directly).
-        -- Do NOT start pathwalking here — that would fight with interact_altar.
         if map_nav.is_done() or in_target_zone(boss) then
             console.print("[Reaper] Arrived: " .. utils.get_zone())
             reset_nav()
@@ -416,7 +330,7 @@ function task.Execute()
                 console.print("[Reaper] Giving up after " .. nav.max_attempts .. " attempts.")
                 reset_nav(); return
             end
-            map_nav.start(boss.id, boss.zone_prefix, boss.run_type == "sigil")
+            map_nav.start(boss.id, boss.zone_prefix, false)
         end
         return
     end
@@ -441,7 +355,7 @@ function task.Execute()
         return
     end
 
-    -- ---- WALKING: walk to dungeon entrance ----
+    -- ---- WALKING ----
     if nav.state == STATE.WALKING then
         if in_target_zone(boss) and not utils.get_dungeon_entrance() then
             reset_nav(); return

@@ -4,9 +4,8 @@
 
 local gui      = require "gui"
 local settings = {
-    enabled   = false,
-    use_d4a   = false,
-    use_alfred= true,
+    enabled    = false,
+    use_alfred = true,
 
     -- Run type toggles
     run_materials = true,   -- consumable material runs
@@ -28,11 +27,10 @@ local settings = {
 
 function settings:update_settings()
     settings.enabled    = gui.elements.main_toggle:get()
-    settings.use_d4a    = gui.elements.use_d4a:get()
     settings.use_alfred = gui.elements.use_alfred:get()
 
-    settings.run_materials   = gui.elements.run_materials:get()
-    settings.run_sigils      = gui.elements.run_sigils:get()
+    settings.run_materials = gui.elements.run_materials:get()
+    settings.run_sigils    = gui.elements.run_sigils:get()
 
     settings.dungeon_reset_enabled  = gui.elements.dungeon_reset_enabled:get()
     settings.dungeon_reset_interval = gui.elements.dungeon_reset_interval:get()

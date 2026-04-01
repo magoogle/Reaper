@@ -7,6 +7,8 @@
 --    Interact: { vec3, action="interact" }   → interact_object (ladder etc.)
 -- ============================================================
 
+local explorerlite = require "core.explorerlite"
+
 local M = {}
 
 M.is_walking          = false
@@ -17,14 +19,12 @@ M.walking_to_start    = false
 
 -- ---- Tuning ----
 local REACH_DIST      = 2.5
-local LOOKAHEAD_DIST  = 8.0
-local MOVE_INTERVAL   = 0.1
+local LOOKAHEAD_DIST  = 15.0  -- look further ahead for smoother movement
 local STUCK_THRESHOLD = 3.0
 local INTERACT_RANGE  = 3.5
 local INTERACT_WAIT   = 2.5   -- seconds to wait after interact before advancing
 
 -- ---- Internal state ----
-local last_move_time  = 0
 local last_pos        = nil
 local last_pos_time   = 0
 local stuck_timer     = 0
@@ -162,7 +162,6 @@ function M.start_walking_path_with_points(points, path_name, _force)
     M.current_waypoint_index = 1
     M.is_walking             = true
     M.walking_to_start       = false
-    last_move_time           = 0
     last_pos                 = nil
     last_pos_time            = now()
     stuck_timer              = 0
@@ -272,18 +271,14 @@ function M.update_path_walking()
             end
         end
         -- Walk toward interact point
-        if (t - last_move_time) >= MOVE_INTERVAL then
-            pathfinder.request_move(wp.pos)
-            last_move_time = t
-        end
+        explorerlite:set_custom_target(wp.pos)
+        explorerlite:move_to_target()
         return
     end
 
-    -- ---- Normal walk ----
-    if (t - last_move_time) >= MOVE_INTERVAL then
-        pathfinder.request_move(wp.pos)
-        last_move_time = t
-    end
+    -- ---- Normal walk — continuous movement via explorerlite ----
+    explorerlite:set_custom_target(wp.pos)
+    explorerlite:move_to_target()
 end
 
 return M
