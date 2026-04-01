@@ -131,18 +131,16 @@ end
 -- -------------------------------------------------------
 local STATE = {
     IDLE        = "IDLE",
-    USE_SIGIL   = "USE_SIGIL",    -- activate sigil item, confirm dialog
-    WAIT_PORTAL = "WAIT_PORTAL",  -- wait for zone to change to boss dungeon
-    MAP_NAV     = "MAP_NAV",      -- teleport via map_nav.lua
+    USE_SIGIL   = "USE_SIGIL",   -- activate sigil item, confirm dialog, then teleport
+    MAP_NAV     = "MAP_NAV",     -- teleport via map_nav.lua (material & sigil runs)
     PATHWALKING = "PATHWALKING",
     WALKING     = "WALKING",
     ENTERING    = "ENTERING",
 }
 
-local T_CONFIRM    = 0.8   -- wait after use_item before confirming
-local T_PORTAL_MAX = 60.0  -- max wait for zone after sigil use
-local T_SETTLE     = 2.5
-local T_ENTER      = 15.0
+local T_CONFIRM = 0.8   -- wait after use_item before confirming
+local T_SETTLE  = 2.5
+local T_ENTER   = 15.0
 
 local nav = {
     state          = STATE.IDLE,
@@ -266,48 +264,19 @@ function task.Execute()
             return
         end
 
-        -- Material run: teleport directly to boss dungeon
-        map_nav.start(boss.id, boss.zone_prefix, false)
+        -- Teleport directly to boss dungeon
+        map_nav.start(boss.id, boss.zone_prefix, boss.run_type == "sigil")
         set_state(STATE.MAP_NAV)
         return
     end
 
-    -- ---- USE_SIGIL: confirm the consume dialog ----
+    -- ---- USE_SIGIL: confirm dialog then teleport directly to boss dungeon ----
     if nav.state == STATE.USE_SIGIL then
         if (t - nav.phase_start) >= T_CONFIRM then
             console.print("[Reaper] Confirming sigil notification...")
             utility.confirm_sigil_notification()
-            set_state(STATE.WAIT_PORTAL)
-        end
-        return
-    end
-
-    -- ---- WAIT_PORTAL: wait for zone to change after sigil use ----
-    if nav.state == STATE.WAIT_PORTAL then
-        if in_target_zone(boss) then
-            console.print("[Reaper] Entered sigil dungeon: " .. utils.get_zone())
-            reset_nav()
-            return
-        end
-
-        local zone = utils.get_zone()
-        if zone:find("Boss_WT") or zone:find("Boss_Kehj") or zone:find("S12_Boss") then
-            console.print("[Reaper] Entered boss zone: " .. zone)
-            reset_nav()
-            return
-        end
-
-        if (t - nav.phase_start) >= T_PORTAL_MAX then
-            nav.attempts = nav.attempts + 1
-            console.print(string.format("[Reaper] Sigil zone timeout — attempt %d/%d",
-                nav.attempts, nav.max_attempts))
-            if nav.attempts >= nav.max_attempts then
-                console.print("[Reaper] Giving up on sigil run — skipping.")
-                rotation.advance()
-                reset_nav()
-            else
-                nav.phase_start = t
-            end
+            map_nav.start(boss.id, boss.zone_prefix, true)
+            set_state(STATE.MAP_NAV)
         end
         return
     end
@@ -330,7 +299,7 @@ function task.Execute()
                 console.print("[Reaper] Giving up after " .. nav.max_attempts .. " attempts.")
                 reset_nav(); return
             end
-            map_nav.start(boss.id, boss.zone_prefix, false)
+            map_nav.start(boss.id, boss.zone_prefix, boss.run_type == "sigil")
         end
         return
     end
