@@ -240,6 +240,11 @@ function task.shouldExecute()
         if not nav.path_exhausted then
             if nav.state == STATE.IDLE or nav.state == STATE.PATHWALKING
                     or nav.state == STATE.LONG_PATHING or nav.state == STATE.EXPLORING then
+                -- Material runs: if idle and already in the boss room, stay put.
+                -- The altar becomes interactable again after looting; interact_altar handles it.
+                if boss.run_type ~= "sigil" and nav.state == STATE.IDLE then
+                    return false
+                end
                 -- After 60s in a sigil dungeon with no enemies, yield to sigil_complete
                 if boss.run_type == "sigil" and tracker.sigil_entry_t > 0
                         and (now() - tracker.sigil_entry_t) >= 60.0 then
