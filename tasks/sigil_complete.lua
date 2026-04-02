@@ -130,9 +130,7 @@ function task.Execute()
                 end
                 return
             end
-            console.print("[Reaper] Sigil run complete — counting kill and teleporting to Cerrigar.")
-            rotation.consume_run()
-            tracker.reset_run()
+            console.print("[Reaper] Sigil run complete — teleporting to Cerrigar.")
             teleport_to_waypoint(CERRIGAR_WP)
             set_state(STATE.TELEPORTING)
         end
@@ -147,11 +145,13 @@ function task.Execute()
         return
     end
 
-    -- ---- WAIT_TOWN: wait to land in Cerrigar ----
+    -- ---- WAIT_TOWN: wait to land in Cerrigar, then count the run ----
     if s.state == STATE.WAIT_TOWN then
         if utils.player_in_zone(CERRIGAR_ZONE) then
             if (t - s.t) >= 2.0 then
-                console.print("[Reaper] Back in Cerrigar.")
+                console.print("[Reaper] Back in Cerrigar — counting run.")
+                rotation.consume_run()
+                tracker.reset_run()
                 set_state(STATE.IDLE)
             end
             return

@@ -197,18 +197,39 @@ function task.shouldExecute()
         console.print("[Reaper] Post-revive: re-enabling path walk.")
     end
 
-    -- If we left the dungeon while mid-navigation, reset to IDLE so we
-    -- start fresh from town (sigil complete / death / teleport out).
+    -- Reset settle timer whenever we leave Cerrigar (entered dungeon or zone changed)
+    if utils.get_zone() ~= CERRIGAR_ZONE then
+        _sigil_settle_t = -999
+    end
+
+    -- If we left the dungeon while mid-navigation, reset and yield this tick
+    -- so other tasks (sigil_complete WAIT_TOWN) can run first.
     local active_nav = nav.state == STATE.PATHWALKING
                     or nav.state == STATE.LONG_PATHING
                     or nav.state == STATE.EXPLORING
     if active_nav and not in_target_zone(boss) then
         console.print("[Reaper] Left target zone mid-nav — resetting.")
         reset_nav()
+        return false
     end
 
     -- Always run while map_nav is active
     if nav.state == STATE.MAP_NAV then return true end
+
+    -- In Cerrigar between sigil runs: yield to sigil_complete until the run
+    -- is counted (sigil_entry_t reset to -999), then apply a settle delay.
+    if nav.state == STATE.IDLE and boss.run_type == "sigil"
+            and utils.get_zone() == CERRIGAR_ZONE then
+        -- sigil_entry_t > 0 means we're still in the old run; yield to sigil_complete
+        if tracker.sigil_entry_t > 0 then return false end
+        -- Run is reset. Start (or check) the settle timer.
+        if _sigil_settle_t < 0 then
+            _sigil_settle_t = now()
+            console.print(string.format("[Reaper] Run reset — waiting %.0fs before sigil.", T_SIGIL_SETTLE))
+        end
+        if (now() - _sigil_settle_t) < T_SIGIL_SETTLE then return false end
+        -- Settle complete — fall through to Execute to activate the sigil
+    end
 
     if tracker.altar_activated then return false end
     if in_target_zone(boss) and chest_visible() then return false end
@@ -282,20 +303,9 @@ function task.Execute()
             return
         end
 
-        -- Sigil run: wait to confirm we're in Cerrigar, then activate the sigil
+        -- Sigil run: shouldExecute already enforced the settle delay — just activate
         if boss.run_type == "sigil" then
-            local zone = utils.get_zone()
-            if zone ~= CERRIGAR_ZONE then
-                _sigil_settle_t = -999  -- reset if not in Cerrigar
-                return
-            end
-            if _sigil_settle_t < 0 then
-                _sigil_settle_t = t  -- start settle timer on first Cerrigar tick
-                console.print(string.format("[Reaper] In Cerrigar — waiting %.0fs before sigil activation.", T_SIGIL_SETTLE))
-            end
-            if (t - _sigil_settle_t) < T_SIGIL_SETTLE then return end
-            _sigil_settle_t = -999  -- reset for next time
-
+            if utils.get_zone() ~= CERRIGAR_ZONE then return end
             local sigil = find_sigil_for_boss(boss.id)
             if not sigil then
                 console.print("[Reaper] No sigil found for " .. boss.label .. " — skipping.")
@@ -304,7 +314,8 @@ function task.Execute()
                 return
             end
             console.print("[Reaper] Using sigil for " .. boss.label)
-            tracker.sigil_entry_t = now()  -- start the 60s fresh-entry window
+            _sigil_settle_t = -999  -- clear so next return to Cerrigar gets a fresh settle
+            tracker.sigil_entry_t = now()
             local ok, err = pcall(use_item, sigil)
             if not ok then
                 console.print("[Reaper] use_item failed: " .. tostring(err))
