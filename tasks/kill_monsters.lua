@@ -6,11 +6,10 @@
 --  altar position so the orbwalker stays close to the boss.
 -- ============================================================
 
-local utils        = require "core.utils"
-local explorerlite = require "core.explorerlite"
-local tracker      = require "core.tracker"
-local rotation     = require "core.boss_rotation"
-local enums        = require "data.enums"
+local utils    = require "core.utils"
+local tracker  = require "core.tracker"
+local rotation = require "core.boss_rotation"
+local enums    = require "data.enums"
 
 local stuck_position = nil
 
@@ -54,19 +53,6 @@ function task.shouldExecute()
 end
 
 function task.Execute()
-    local player_pos = get_player_position()
-
-    -- Stuck guard
-    if explorerlite.check_if_stuck() then
-        stuck_position = player_pos
-        return
-    end
-    if stuck_position and utils.distance_to(stuck_position) < 10 then
-        return
-    else
-        stuck_position = nil
-    end
-
     -- Always chase suppressor orbs (need to burst them to unblock combat)
     local suppressor = utils.get_suppressor()
     if suppressor then
@@ -74,22 +60,13 @@ function task.Execute()
         return
     end
 
-    -- Tether: if too far from altar, walk back before engaging any enemy
+    -- Tether: if drifted too far from altar, walk back
     local anchor = get_anchor_position()
     if anchor and utils.distance_to(anchor) > ALTAR_TETHER then
         pathfinder.request_move(anchor)
         return
     end
-
-    local enemy = utils.get_closest_enemy()
-    if not enemy then return end
-
-    local dist = utils.distance_to(enemy)
-    if dist >= 6.5 then
-        explorerlite:set_custom_target(enemy:get_position())
-        explorerlite:move_to_target()
-    end
-    -- Within 6.5: orbwalker handles casting, no movement needed
+    -- Otherwise stay put — orbwalker handles casting from current position
 end
 
 return task
