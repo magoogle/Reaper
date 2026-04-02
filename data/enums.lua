@@ -30,7 +30,7 @@ enums.altar_names = {
 -- -------------------------------------------------------
 enums.boss_zones = {
     { id="duriel",    zone_prefix="Boss_WT4_Duriel",         label="Duriel"              },
-    { id="andariel",  zone_prefix="Boss_WT4_Boss_Andariel",  label="Andariel"            },
+    { id="andariel",  zone_prefix="Boss_WT4_Andariel",       label="Andariel"            },
     { id="varshan",   zone_prefix="Boss_WT4_Varshan",        label="Varshan"             },
     { id="grigoire",  zone_prefix="Boss_WT3_PenitentKnight", label="Grigoire"            },
     { id="zir",       zone_prefix="Boss_WT4_S2VampireLord",  label="Lord Zir"            },
@@ -63,7 +63,7 @@ enums.positions = {
         ["Boss_WT4_S2VampireLord"]  = vec3:new(-10.556, -10.419, -3.120),
         ["Boss_WT4_Duriel"]         = vec3:new(-3.616,   -2.309,  -3.689),
         ["Boss_WT3_PenitentKnight"] = vec3:new( 2.0051,   1.5871,  2.0),
-        ["Boss_WT4_Boss_Andariel"]  = vec3:new( 8.2821,  -8.7344, -6.223),
+        ["Boss_WT4_Andariel"]       = vec3:new( 8.2821,  -8.7344, -6.223),
         ["Boss_WT4_MegaDemon"]      = vec3:new( 4.9245,   5.3086,  0.127),
         ["Boss_WT4_Varshan"]        = vec3:new(-3.2805,  -3.1949, -3.304),
     },
