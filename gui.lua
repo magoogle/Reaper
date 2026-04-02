@@ -39,7 +39,8 @@ gui.elements = {
     dungeon_reset_enabled  = cb(false,      "dr_en"),
     dungeon_reset_interval = si(1, 200, 10, "dr_int"),
 
-    use_alfred = cb(true, "alfred"),
+    use_alfred    = cb(true,  "alfred"),
+    use_batmobile = cb(false, "batmobile"),
 
     -- Run type toggles
     run_materials = cb(true,  "run_mats"),
@@ -93,6 +94,8 @@ function gui.render()
     if gui.elements.misc_tree:push("Settings") then
         gui.elements.use_alfred:render("Use Alfred",
             "Hand off inventory/repair/restock tasks to Alfred.")
+        gui.elements.use_batmobile:render("Use Batmobile Navigation",
+            "Use BatmobilePlugin autonomous navigation instead of pre-recorded path files.")
 
         gui.elements.run_materials:render("Run Material Runs",
             "Farm bosses using consumable summoning materials (Shards of Agony, Living Steel, etc.)")

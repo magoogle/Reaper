@@ -4,8 +4,9 @@
 
 local gui      = require "gui"
 local settings = {
-    enabled    = false,
-    use_alfred = true,
+    enabled       = false,
+    use_alfred    = true,
+    use_batmobile = false,
 
     -- Run type toggles
     run_materials = true,   -- consumable material runs
@@ -26,8 +27,9 @@ local settings = {
 }
 
 function settings:update_settings()
-    settings.enabled    = gui.elements.main_toggle:get()
-    settings.use_alfred = gui.elements.use_alfred:get()
+    settings.enabled       = gui.elements.main_toggle:get()
+    settings.use_alfred    = gui.elements.use_alfred:get()
+    settings.use_batmobile = gui.elements.use_batmobile:get()
 
     settings.run_materials = gui.elements.run_materials:get()
     settings.run_sigils    = gui.elements.run_sigils:get()

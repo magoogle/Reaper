@@ -15,15 +15,51 @@
 --    (then same PATHWALKING / LONG_PATHING / EXPLORING)
 -- ============================================================
 
-local utils    = require "core.utils"
-local enums    = require "data.enums"
-local map_nav  = require "core.map_nav"
-local rotation = require "core.boss_rotation"
-local tracker  = require "core.tracker"
+local utils      = require "core.utils"
+local enums      = require "data.enums"
+local map_nav    = require "core.map_nav"
+local rotation   = require "core.boss_rotation"
+local tracker    = require "core.tracker"
+local pathwalker = require "core.pathwalker"
+local settings   = require "core.settings"
 
 local plugin_label  = 'reaper'
 local CERRIGAR_WP   = 0x76D58
 local CERRIGAR_ZONE = "Scos_Cerrigar"
+
+-- -------------------------------------------------------
+-- Path-file variant loader (used when Batmobile is off)
+-- -------------------------------------------------------
+local cached_variants = {}
+
+local function load_variants(boss_id)
+    if cached_variants[boss_id] then return cached_variants[boss_id] end
+    local variants = {}
+    for _, letter in ipairs({"a","b","c","d","e"}) do
+        local mod = "paths/" .. boss_id .. "_" .. letter
+        local ok, pts = pcall(require, mod)
+        if ok and type(pts) == "table" and #pts > 0 then
+            variants[#variants + 1] = pts
+        end
+    end
+    cached_variants[boss_id] = variants
+    return variants
+end
+
+local function pick_best_path(variants)
+    if not variants or #variants == 0 then return nil end
+    if #variants == 1 then return variants[1] end
+    local pp = get_player_position()
+    if not pp then return variants[1] end
+    local best, best_dist = variants[1], math.huge
+    for _, pts in ipairs(variants) do
+        if pts[1] then
+            local d = pp:dist_to(pts[1])
+            if d < best_dist then best = pts; best_dist = d end
+        end
+    end
+    return best
+end
 
 -- -------------------------------------------------------
 -- Zone helpers
@@ -134,6 +170,7 @@ local function reset_nav()
     nav.path_exhausted    = false
     nav.exploring_retries = 0
     map_nav.reset()
+    pathwalker.stop_walking()
     if BatmobilePlugin then
         BatmobilePlugin.stop_long_path(plugin_label)
         BatmobilePlugin.clear_target(plugin_label)
@@ -317,7 +354,7 @@ function task.Execute()
         return
     end
 
-    -- ---- PATHWALKING: fire one navigate_long_path request then hand off ----
+    -- ---- PATHWALKING ----
     if nav.state == STATE.PATHWALKING then
         local altar = utils.get_altar()
         if altar and utils.distance_to(altar) <= 5.0 then
@@ -325,16 +362,45 @@ function task.Execute()
             reset_nav()
             return
         end
-        local target = altar or enums.positions.getBossRoomPosition(boss.zone_prefix)
-        console.print(string.format("[Reaper] Starting long path to %s...",
-            altar and "altar" or "boss room seed"))
-        local ok = BatmobilePlugin and BatmobilePlugin.navigate_long_path(plugin_label, target)
-        if ok then
-            set_state(STATE.LONG_PATHING)
+
+        if settings.use_batmobile then
+            -- ---- Batmobile branch ----
+            if altar then
+                console.print("[Reaper] Altar visible — starting long path to altar.")
+                local ok = BatmobilePlugin and BatmobilePlugin.navigate_long_path(plugin_label, altar:get_position())
+                if ok then
+                    set_state(STATE.LONG_PATHING)
+                else
+                    console.print("[Reaper] Long path blocked — switching to EXPLORING.")
+                    nav.exploring_retries = 0
+                    set_state(STATE.EXPLORING)
+                end
+            else
+                console.print("[Reaper] No altar visible — switching to EXPLORING.")
+                nav.exploring_retries = 0
+                set_state(STATE.EXPLORING)
+            end
         else
-            console.print("[Reaper] Long path blocked (traversal?) — switching to EXPLORING.")
-            nav.exploring_retries = 0
-            set_state(STATE.EXPLORING)
+            -- ---- Path-file branch ----
+            if not pathwalker.is_walking then
+                local variants = load_variants(boss.id)
+                local path = pick_best_path(variants)
+                if path then
+                    pathwalker.start_walking_path_with_points(path, boss.id)
+                else
+                    console.print("[Reaper] No path variants found for " .. boss.id .. " — skipping.")
+                    nav.path_exhausted = true
+                    reset_nav()
+                    return
+                end
+            end
+            if pathwalker.is_path_completed() then
+                console.print("[Reaper] Path complete.")
+                pathwalker.stop_walking()
+                reset_nav()
+                return
+            end
+            pathwalker.update_path_walking()
         end
         return
     end
@@ -348,32 +414,39 @@ function task.Execute()
             return
         end
         if not BatmobilePlugin or not BatmobilePlugin.is_long_path_navigating() then
+            -- Long path ended (success or failure)
             if altar then
-                -- Reached seed; altar now visible — navigate to it directly
-                console.print("[Reaper] Seed reached — altar visible, navigating to altar.")
-                local ok = BatmobilePlugin and BatmobilePlugin.navigate_long_path(plugin_label, altar)
-                if not ok then
-                    console.print("[Reaper] Altar path failed — switching to EXPLORING.")
-                    nav.exploring_retries = 0
-                    set_state(STATE.EXPLORING)
+                local dist = utils.distance_to(altar)
+                if dist <= 5.0 then
+                    reset_nav()
+                else
+                    -- Got closer but not there yet — re-fire to altar
+                    console.print(string.format("[Reaper] Long path ended, dist=%.1f — re-firing to altar.", dist))
+                    local ok = BatmobilePlugin and BatmobilePlugin.navigate_long_path(plugin_label, altar:get_position())
+                    if not ok then
+                        nav.exploring_retries = 0
+                        set_state(STATE.EXPLORING)
+                    end
+                    nav.phase_start = now()
                 end
-                nav.phase_start = now()
             else
-                -- Reached seed but no altar — explore around the boss room
-                console.print("[Reaper] Seed reached but no altar — switching to EXPLORING.")
+                console.print("[Reaper] Long path ended, no altar — switching to EXPLORING.")
                 nav.exploring_retries = 0
                 set_state(STATE.EXPLORING)
             end
             return
         end
-        if (now() - nav.phase_start) > 120.0 then
-            console.print("[Reaper] Long path navigation timeout — resetting.")
-            reset_nav()
+        -- Timeout guard
+        if (now() - nav.phase_start) > 60.0 then
+            console.print("[Reaper] Long path timeout — switching to EXPLORING.")
+            if BatmobilePlugin then BatmobilePlugin.stop_long_path(plugin_label) end
+            nav.exploring_retries = 0
+            set_state(STATE.EXPLORING)
         end
         return
     end
 
-    -- ---- EXPLORING: traversal blocking long path; drive Batmobile normally ----
+    -- ---- EXPLORING: drive Batmobile normally; retry long path once altar visible ----
     if nav.state == STATE.EXPLORING then
         local altar = utils.get_altar()
         if altar and utils.distance_to(altar) <= 5.0 then
@@ -382,17 +455,22 @@ function task.Execute()
             return
         end
         if (now() - nav.phase_start) >= 10.0 then
-            nav.exploring_retries = nav.exploring_retries + 1
-            console.print(string.format("[Reaper] EXPLORING: long path retry %d/10...", nav.exploring_retries))
-            local target = altar or enums.positions.getBossRoomPosition(boss.zone_prefix)
-            local ok = BatmobilePlugin and BatmobilePlugin.navigate_long_path(plugin_label, target)
-            if ok then
-                console.print("[Reaper] Long path found — switching to LONG_PATHING.")
-                set_state(STATE.LONG_PATHING)
-                return
+            if altar then
+                -- Altar now visible — attempt long path
+                nav.exploring_retries = nav.exploring_retries + 1
+                console.print(string.format("[Reaper] EXPLORING: altar visible, long path retry %d...", nav.exploring_retries))
+                local ok = BatmobilePlugin and BatmobilePlugin.navigate_long_path(plugin_label, altar:get_position())
+                if ok then
+                    console.print("[Reaper] Long path found — switching to LONG_PATHING.")
+                    set_state(STATE.LONG_PATHING)
+                    return
+                end
+            else
+                nav.exploring_retries = nav.exploring_retries + 1
+                console.print(string.format("[Reaper] EXPLORING: no altar yet (retry %d)...", nav.exploring_retries))
             end
             nav.phase_start = now()
-            if nav.exploring_retries >= 10 then
+            if nav.exploring_retries >= 15 then
                 if boss.run_type == "sigil" then
                     console.print("[Reaper] EXPLORING: sigil dungeon exhausted — teleporting out.")
                     teleport_to_waypoint(CERRIGAR_WP)
@@ -405,10 +483,12 @@ function task.Execute()
                 return
             end
         end
-        -- Drive Batmobile normally each tick
+        -- Drive Batmobile toward boss room each tick
         if BatmobilePlugin then
-            local target = altar or enums.positions.getBossRoomPosition(boss.zone_prefix)
-            if not BatmobilePlugin.set_target(plugin_label, target) then
+            local seed = enums.positions.getBossRoomPosition(boss.zone_prefix)
+            -- Prefer altar position when visible; fall back to seed for direction only
+            local drive_target = altar and altar:get_position() or seed
+            if not BatmobilePlugin.set_target(plugin_label, drive_target) then
                 BatmobilePlugin.clear_target(plugin_label)
             end
             BatmobilePlugin.resume(plugin_label)
