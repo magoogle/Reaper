@@ -188,8 +188,11 @@ end
 
 function task.shouldExecute()
     local boss = rotation.current()
+    -- If rotation is done and we're not in Cerrigar yet, run so Execute can teleport us out
+    if rotation.is_done() then
+        return utils.get_zone() ~= CERRIGAR_ZONE
+    end
     if not boss then return false end
-    if rotation.is_done() then return false end
 
     if tracker.just_revived then
         nav.path_exhausted   = false
@@ -278,6 +281,18 @@ end
 -- Execute
 -- -------------------------------------------------------
 function task.Execute()
+    -- Rotation finished — get back to Cerrigar so main.lua can disable cleanly
+    if rotation.is_done() then
+        if utils.get_zone() ~= CERRIGAR_ZONE then
+            if nav.state ~= STATE.WAIT_EXIT then
+                console.print("[Reaper] Rotation complete — returning to Cerrigar.")
+                teleport_to_waypoint(CERRIGAR_WP)
+                set_state(STATE.WAIT_EXIT)
+            end
+        end
+        return
+    end
+
     local boss = rotation.current()
     if not boss then return end
     local t = now()

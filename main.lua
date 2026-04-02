@@ -140,7 +140,8 @@ on_update(function()
             finish_tp_time = get_time_since_inject()
             return
         end
-        local zone = get_current_world():get_current_zone_name()
+        local world   = get_current_world()
+        local zone    = world and world:get_current_zone_name() or ""
         local elapsed = get_time_since_inject() - finish_tp_time
         if zone == CERRIGAR_ZONE or elapsed > 30.0 then
             console.print("[Reaper] All runs complete. Disabling.")

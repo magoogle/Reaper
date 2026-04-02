@@ -24,7 +24,7 @@ local last_interact_time  = 0
 local INTERACT_COOLDOWN   = 1.5  -- minimum seconds between interact attempts
 local CONFIRM_WAIT        = 2.0  -- seconds after interact before checking success
 local altar_fail_count    = 0
-local MAX_ALTAR_FAILS     = 5    -- consecutive failures before declaring out of materials
+local MAX_ALTAR_FAILS     = 3    -- consecutive failures before declaring out of materials
 
 local function check_if_stuck()
     local pos = get_player_position()
