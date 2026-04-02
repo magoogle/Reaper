@@ -23,6 +23,8 @@ local unstuck_timeout   = 5
 local last_interact_time  = 0
 local INTERACT_COOLDOWN   = 1.5  -- minimum seconds between interact attempts
 local CONFIRM_WAIT        = 2.0  -- seconds after interact before checking success
+local altar_fail_count    = 0
+local MAX_ALTAR_FAILS     = 5    -- consecutive failures before declaring out of materials
 
 local function check_if_stuck()
     local pos = get_player_position()
@@ -108,10 +110,21 @@ function task.Execute()
             -- Altar consumed — boss is spawning
             console.print("[Reaper] Altar activated successfully.")
             tracker.altar_activated = true
+            altar_fail_count = 0
             last_interact_time = 0
         else
-            -- Altar still present — interaction didn't register, retry
-            console.print("[Reaper] Altar still present — retrying.")
+            -- Altar still present — interaction didn't register
+            altar_fail_count = altar_fail_count + 1
+            console.print(string.format("[Reaper] Altar still present — retry %d/%d.",
+                altar_fail_count, MAX_ALTAR_FAILS))
+            if altar_fail_count >= MAX_ALTAR_FAILS then
+                console.print("[Reaper] Out of materials for this boss — skipping.")
+                altar_fail_count = 0
+                local boss = rotation.current()
+                if boss then boss.runs_remaining = 0 end
+                rotation.advance()
+                tracker.reset_run()
+            end
             last_interact_time = 0
         end
         return

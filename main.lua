@@ -20,6 +20,9 @@ local tracker      = require "core.tracker"
 local enums        = require "data.enums"
 local materials    = require "core.materials"
 
+local CERRIGAR_WP   = 0x76D58
+local CERRIGAR_ZONE = "Scos_Cerrigar"
+
 -- -------------------------------------------------------
 -- Enable guard — only fires once per toggle-on
 -- -------------------------------------------------------
@@ -83,6 +86,8 @@ end
 local enabled_last_frame = false
 local enable_time        = 0
 local startup_done       = false  -- true once on_enable has been attempted
+local finishing          = false  -- true while teleporting to Cerrigar before shutdown
+local finish_tp_time     = 0
 
 on_update(function()
     settings:update_settings()
@@ -101,6 +106,7 @@ on_update(function()
         on_disable()
         enabled_last_frame = false
         startup_done       = false
+        finishing          = false
         return
     end
 
@@ -124,11 +130,25 @@ on_update(function()
     local lp = get_local_player()
     if not lp then return end
 
-    if rotation.is_done() then
-        console.print("[Reaper] All runs complete. Disabling.")
-        gui.elements.main_toggle:set(false)
-        enabled_last_frame = false
-        startup_done       = false
+    -- When rotation is done, return to Cerrigar then disable
+    if rotation.is_done() or finishing then
+        if not finishing then
+            console.print("[Reaper] All runs complete — returning to Cerrigar.")
+            task_manager.reset_all()
+            teleport_to_waypoint(CERRIGAR_WP)
+            finishing     = true
+            finish_tp_time = get_time_since_inject()
+            return
+        end
+        local zone = get_current_world():get_current_zone_name()
+        local elapsed = get_time_since_inject() - finish_tp_time
+        if zone == CERRIGAR_ZONE or elapsed > 30.0 then
+            console.print("[Reaper] All runs complete. Disabling.")
+            finishing          = false
+            gui.elements.main_toggle:set(false)
+            enabled_last_frame = false
+            startup_done       = false
+        end
         return
     end
 
