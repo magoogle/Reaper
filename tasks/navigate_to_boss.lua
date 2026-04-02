@@ -197,6 +197,16 @@ function task.shouldExecute()
         console.print("[Reaper] Post-revive: re-enabling path walk.")
     end
 
+    -- If we left the dungeon while mid-navigation, reset to IDLE so we
+    -- start fresh from town (sigil complete / death / teleport out).
+    local active_nav = nav.state == STATE.PATHWALKING
+                    or nav.state == STATE.LONG_PATHING
+                    or nav.state == STATE.EXPLORING
+    if active_nav and not in_target_zone(boss) then
+        console.print("[Reaper] Left target zone mid-nav — resetting.")
+        reset_nav()
+    end
+
     -- Always run while map_nav is active
     if nav.state == STATE.MAP_NAV then return true end
 

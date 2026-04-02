@@ -9,11 +9,10 @@
 --    WAIT_COMPLETE → 3s pause, then consume_run + reset for next cycle
 -- ============================================================
 
-local utils        = require "core.utils"
-local tracker      = require "core.tracker"
-local explorerlite = require "core.explorerlite"
-local rotation     = require "core.boss_rotation"
-local enums        = require "data.enums"
+local utils    = require "core.utils"
+local tracker  = require "core.tracker"
+local rotation = require "core.boss_rotation"
+local enums    = require "data.enums"
 
 -- ---- Config ----
 local CHEST_INTERACT_COOLDOWN = 10   -- min seconds between interact attempts
@@ -116,7 +115,6 @@ end
 -- ---- Stuck helpers ----
 local last_pos = nil
 local last_move_t = 0
-local unstuck_start = 0
 
 local function check_stuck()
     local pos = get_player_position()
@@ -175,10 +173,10 @@ function task.Execute()
 
     -- Stuck recovery
     if check_stuck() then
-        local ut = explorerlite.find_unstuck_target()
-        if ut then
-            try_movement_spell(ut)
-            pathfinder.force_move_raw(ut)
+        local pos = get_player_position()
+        if pos then
+            try_movement_spell(pos)
+            pathfinder.force_move_raw(pos)
         end
         return
     end
@@ -198,8 +196,7 @@ function task.Execute()
 
         local dist = utils.distance_to(chest:get_position())
         if dist > 2.5 then
-            explorerlite:set_custom_target(chest:get_position())
-            explorerlite:move_to_target()
+            pathfinder.request_move(chest:get_position())
             return
         end
 
@@ -251,7 +248,6 @@ function task.Execute()
             -- Force advance to next boss
             rotation.advance()
             tracker.reset_run()
-            utils.reset_boss_quest_tracking()
             set_phase("IDLE")
         else
             -- Try interacting again
@@ -288,8 +284,7 @@ function task.Execute()
                     console.print(string.format("[Chest] Searching for doom chest... %.0fs/%.0fs  dist_to_anchor=%.1f",
                         elapsed, theme_timeout, d))
                 end
-                explorerlite:set_custom_target(anchor)
-                explorerlite:move_to_target()
+                pathfinder.request_move(anchor)
             end
             return
         end
@@ -307,8 +302,7 @@ function task.Execute()
         end
 
         if dist > 2.5 then
-            explorerlite:set_custom_target(chest:get_position())
-            explorerlite:move_to_target()
+            pathfinder.request_move(chest:get_position())
             return
         end
 
