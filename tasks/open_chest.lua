@@ -18,9 +18,11 @@ local enums        = require "data.enums"
 -- ---- Config ----
 local CHEST_INTERACT_COOLDOWN = 10   -- min seconds between interact attempts
 local WAIT_GONE_SECS          = 10   -- if chest still here after this → out of mats
-local THEME_WAIT_SECS         = 20   -- seconds to look for theme chest
+local THEME_WAIT_SECS         = 20   -- seconds to look for theme chest (material runs)
+local SIGIL_THEME_WAIT_SECS   = 15   -- seconds to wait for doom chest before giving up (sigil)
 local WAIT_COMPLETE_SECS      = 3    -- pause after all chests before next run
 local OUT_OF_MATS_RETRIES     = 3    -- times chest can fail to despawn before stopping
+local CHEST_SEARCH_RADIUS     = 40.0 -- search radius around altar/boss room anchor
 
 -- ---- State ----
 local phase                  = "IDLE"
@@ -28,6 +30,7 @@ local phase_start            = 0
 local last_interact_time     = 0
 local last_chest_pos         = nil
 local no_despawn_count       = 0    -- counts consecutive failures to despawn
+local _doom_log_t            = nil  -- throttle doom chest debug log
 
 local function set_phase(p)
     phase       = p
@@ -50,20 +53,33 @@ local function _interactable(a)
     return ok and v == true
 end
 
+local function get_chest_anchor()
+    local altar = utils.get_altar()
+    if altar then return altar:get_position() end
+    if last_chest_pos then return last_chest_pos end
+    local boss = rotation.current()
+    if boss then return enums.positions.getBossRoomPosition(boss.zone_prefix) end
+    return nil
+end
+
 local function find_egb_chest()
     local actors = actors_manager.get_all_actors()
     if type(actors) ~= "table" then return nil end
+    local best, best_dist = nil, math.huge
+    local lp = get_local_player()
+    local pp = lp and lp:get_position()
     for _, a in pairs(actors) do
         if _interactable(a) then
             local n = a:get_skin_name()
             if type(n) == "string" then
                 if n:find("^EGB_Chest") or n:find("^Boss_WT_Belial_") or n:find("^Chest_Boss") then
-                    return a
+                    local d = pp and pp:dist_to(a:get_position()) or 0
+                    if d < best_dist then best = a; best_dist = d end
                 end
             end
         end
     end
-    return nil
+    return best
 end
 
 local function find_theme_chest()
@@ -75,14 +91,9 @@ local function find_theme_chest()
     for _, a in pairs(actors) do
         local n = a:get_skin_name()
         if type(n) == "string" and n:find("^S12_Prop_Theme_Chest_") then
-            -- case-insensitive dyn check
             if n:lower():find("_dyn") then
-                if pp then
-                    local d = pp:dist_to(a:get_position())
-                    if d < best_dist then best = a; best_dist = d end
-                else
-                    return a
-                end
+                local d = pp and pp:dist_to(a:get_position()) or 0
+                if d < best_dist then best = a; best_dist = d end
             end
         end
     end
@@ -146,11 +157,14 @@ function task.shouldExecute()
     if phase == "WAIT_GONE" or phase == "THEME" or phase == "WAIT_COMPLETE" then
         return true
     end
-    -- For sigil runs there is no EGB chest — jump straight to THEME phase
-    -- when the altar has been activated. Stop once chest is done.
+    -- For sigil runs there is no altar or EGB chest — jump straight to THEME phase
+    -- once the boss is dead.  Use quest completion as the primary signal (the
+    -- Boss_*_Primary quest disappears when the boss dies); fall back to enemy check.
     local boss = rotation.current()
     if boss and boss.run_type == "sigil" then
-        return tracker.altar_activated and phase == "IDLE" and not tracker.sigil_chest_done
+        if tracker.sigil_chest_done then return false end
+        if phase ~= "IDLE" then return true end  -- already mid-sequence
+        return tracker.altar_activated
     end
     -- Trigger on chest visibility
     return find_egb_chest() ~= nil
@@ -237,6 +251,7 @@ function task.Execute()
             -- Force advance to next boss
             rotation.advance()
             tracker.reset_run()
+            utils.reset_boss_quest_tracking()
             set_phase("IDLE")
         else
             -- Try interacting again
@@ -251,32 +266,54 @@ function task.Execute()
 
     -- ---- THEME: find and open the DOOM/seasonal chest ----
     if phase == "THEME" then
-        if phase_elapsed() > THEME_WAIT_SECS then
-            console.print("[Chest] No theme chest found – continuing.")
+        local cur_boss = rotation.current()
+        local theme_timeout = (cur_boss and cur_boss.run_type == "sigil")
+            and SIGIL_THEME_WAIT_SECS or THEME_WAIT_SECS
+        local elapsed = phase_elapsed()
+        if elapsed > theme_timeout then
+            console.print(string.format("[Chest] No theme chest after %.0fs — moving on.", elapsed))
             set_phase("WAIT_COMPLETE")
             return
         end
 
         local chest = find_theme_chest()
         if not chest then
-            -- Hang near where the EGB chest was
-            if last_chest_pos and utils.distance_to(last_chest_pos) > 2.5 then
-                explorerlite:set_custom_target(last_chest_pos)
+            -- Sweep toward the altar/boss room anchor so chest actors load.
+            local anchor = get_chest_anchor()
+            if anchor then
+                local d = utils.distance_to(anchor)
+                local now_s = os.time()
+                if not _doom_log_t or now_s ~= _doom_log_t then
+                    _doom_log_t = now_s
+                    console.print(string.format("[Chest] Searching for doom chest... %.0fs/%.0fs  dist_to_anchor=%.1f",
+                        elapsed, theme_timeout, d))
+                end
+                explorerlite:set_custom_target(anchor)
                 explorerlite:move_to_target()
             end
             return
         end
 
-        local dist = utils.distance_to(chest:get_position())
+        local dist     = utils.distance_to(chest:get_position())
+        local inter    = _interactable(chest)
+        local cooldown = cooldown_ok()
+
+        -- Log once per second so we can diagnose without spam
+        local now_s = os.time()
+        if not _doom_log_t or now_s ~= _doom_log_t then
+            _doom_log_t = now_s
+            console.print(string.format("[Chest] Doom chest: %s  dist=%.1f  interactable=%s  cooldown_ok=%s",
+                chest:get_skin_name(), dist, tostring(inter), tostring(cooldown)))
+        end
+
         if dist > 2.5 then
             explorerlite:set_custom_target(chest:get_position())
             explorerlite:move_to_target()
             return
         end
 
-        -- Close enough — wait until it becomes interactable, then open
-        if not _interactable(chest) then return end
-        if not cooldown_ok() then return end
+        if not inter then return end
+        if not cooldown then return end
 
         interact_object(chest)
         last_interact_time = os.time()
@@ -286,29 +323,23 @@ function task.Execute()
         return
     end
 
-    -- ---- WAIT_COMPLETE: brief pause then start next run ----
+    -- ---- WAIT_COMPLETE: brief pause to loot, then start next run ----
     if phase == "WAIT_COMPLETE" then
-        if phase_elapsed() >= WAIT_COMPLETE_SECS then
-            local boss = rotation.current()
-            if boss and boss.run_type == "sigil" then
-                console.print("[Chest] Doom chest done — returning to altar for loot.")
-                tracker.sigil_chest_done = true
-                -- Walk back to altar so ground loot gets picked up
-                local altar = utils.get_altar()
-                local anchor = altar and altar:get_position()
-                    or enums.positions.getBossRoomPosition(boss.zone_prefix)
-                if anchor then
-                    explorerlite:set_custom_target(anchor)
-                    explorerlite:move_to_target()
-                end
-            else
-                console.print("[Chest] Run complete.")
-                rotation.consume_run()
-                tracker.reset_run()
-            end
-            set_phase("IDLE")
-            last_chest_pos = nil
+        if phase_elapsed() < WAIT_COMPLETE_SECS then return end
+        local boss = rotation.current()
+        local is_sigil = boss and boss.run_type == "sigil"
+        console.print(string.format("[Chest] Run complete — boss=%s  run_type=%s",
+            tostring(boss and boss.id), tostring(boss and boss.run_type)))
+        if is_sigil then
+            -- sigil_complete handles consume_run + reset_run; just flag chest done.
+            tracker.sigil_chest_done = true
+            console.print("[Chest] Doom chest done — signalling sigil_complete.")
+        else
+            rotation.consume_run()
+            tracker.reset_run()
         end
+        set_phase("IDLE")
+        last_chest_pos = nil
         return
     end
 end

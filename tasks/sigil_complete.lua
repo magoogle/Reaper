@@ -1,23 +1,21 @@
 -- ============================================================
 --  Reaper - tasks/sigil_complete.lua
 --
---  Detects when a sigil run is complete (no enemies for 45s)
+--  Detects when a sigil run is complete (no enemies for 5s after Doom chest opened)
 --  then:
---    1. Teleports back to Cerrigar
---    2. Waits to land
---    3. Calls rotation.consume_run() to count the kill
---    4. Resets tracker for next run
+--    1. Calls rotation.consume_run() + tracker.reset_run()
+--    2. Teleports back to Cerrigar
+--    3. Waits to land (navigate_to_boss handles next sigil activation)
 -- ============================================================
 
 local utils    = require "core.utils"
 local tracker  = require "core.tracker"
 local rotation = require "core.boss_rotation"
 local settings = require "core.settings"
-local d4a      = require "core.d4a_command"
 
 local CERRIGAR_WP   = 0x76D58
 local CERRIGAR_ZONE = "Scos_Cerrigar"
-local NO_ENEMY_TIMEOUT = 15.0  -- seconds with no enemies before declaring run complete
+local NO_ENEMY_TIMEOUT = 5.0   -- seconds with no enemies before declaring run complete
 
 local STATE = {
     IDLE         = "IDLE",
@@ -76,8 +74,15 @@ function task.shouldExecute()
     -- Keep running mid-sequence
     if s.state ~= STATE.IDLE then return true end
 
-    -- Only start watching once altar is activated and we're in the zone
-    return tracker.altar_activated and in_sigil_zone()
+    -- Only start watching once altar is activated and we're in the zone,
+    -- or if sigil_entry_t is set and 60s have passed (stale dungeon fallback).
+    if tracker.altar_activated and in_sigil_zone() then return true end
+    if tracker.sigil_entry_t > 0
+            and (now() - tracker.sigil_entry_t) >= 60.0
+            and in_sigil_zone() then
+        return true
+    end
+    return false
 end
 
 function task.Execute()
@@ -125,7 +130,9 @@ function task.Execute()
                 end
                 return
             end
-            console.print("[Reaper] Sigil run complete — teleporting to Cerrigar.")
+            console.print("[Reaper] Sigil run complete — counting kill and teleporting to Cerrigar.")
+            rotation.consume_run()
+            tracker.reset_run()
             teleport_to_waypoint(CERRIGAR_WP)
             set_state(STATE.TELEPORTING)
         end
@@ -144,9 +151,7 @@ function task.Execute()
     if s.state == STATE.WAIT_TOWN then
         if utils.player_in_zone(CERRIGAR_ZONE) then
             if (t - s.t) >= 2.0 then
-                console.print("[Reaper] Back in Cerrigar — run counted.")
-                rotation.consume_run()
-                tracker.reset_run()
+                console.print("[Reaper] Back in Cerrigar.")
                 set_state(STATE.IDLE)
             end
             return

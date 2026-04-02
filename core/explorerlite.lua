@@ -461,7 +461,6 @@ end
 explorerlite.check_if_stuck = check_if_stuck
 
 function explorerlite:set_custom_target(target)
-    console.print("Setting custom target.")
     target_position = target
 end
 
@@ -561,7 +560,6 @@ local function move_to_target_aggressive()
 end
 
 function explorerlite:move_to_target()
-    console.print("Moving to target")
 
     if handle_stuck_player() then
         -- A temporary unstuck target was just set; move toward it immediately

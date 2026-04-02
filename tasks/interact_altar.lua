@@ -20,7 +20,9 @@ local unstuck_cooldown  = 3
 local unstuck_start     = 0
 local unstuck_timeout   = 5
 
-local boss_summon_time = 0
+local last_interact_time  = 0
+local INTERACT_COOLDOWN   = 1.5  -- minimum seconds between interact attempts
+local CONFIRM_WAIT        = 2.0  -- seconds after interact before checking success
 
 local function check_if_stuck()
     local pos = get_player_position()
@@ -72,7 +74,8 @@ function task.shouldExecute()
             if ok and inter then
                 local name = actor:get_skin_name()
                 if type(name) == "string" then
-                    if name:find("^EGB_Chest") or name:find("^Boss_WT_Belial_") or name:find("^Chest_Boss") then
+                    if name:find("^EGB_Chest") or name:find("^Boss_WT_Belial_") or name:find("^Chest_Boss")
+                        or name:find("^S12_Prop_Theme_Chest_") then
                         return false
                     end
                 end
@@ -85,16 +88,36 @@ function task.shouldExecute()
         if os.time() < tracker.chest_opened_time + 6 then return false end
     end
 
+    -- Keep running while we're waiting to confirm a recent interact attempt
+    if last_interact_time > 0 then return true end
+
     return utils.get_altar() ~= nil
 end
 
 function task.Execute()
     local t = get_time_since_inject()
 
-    -- Don't re-interact too fast after summoning
-    if boss_summon_time > 0 and t - boss_summon_time < 1.5 then return end
+    -- ---- Confirm a recent interact attempt ----
+    -- If we've already interacted, wait CONFIRM_WAIT then check whether
+    -- the altar is gone.  If it's still there the interact didn't register
+    -- (e.g. combat script moved us away) — clear the timer and retry.
+    if last_interact_time > 0 then
+        if (t - last_interact_time) < CONFIRM_WAIT then return end
 
-    -- Unstuck logic
+        if utils.get_altar() == nil then
+            -- Altar consumed — boss is spawning
+            console.print("[Reaper] Altar activated successfully.")
+            tracker.altar_activated = true
+            last_interact_time = 0
+        else
+            -- Altar still present — interaction didn't register, retry
+            console.print("[Reaper] Altar still present — retrying.")
+            last_interact_time = 0
+        end
+        return
+    end
+
+    -- ---- Unstuck logic ----
     if check_if_stuck() then
         if unstuck_start == 0 then
             unstuck_start = t
@@ -116,6 +139,9 @@ function task.Execute()
     local altar = utils.get_altar()
     if not altar then return end
 
+    -- Enforce cooldown between attempts
+    if (t - last_interact_time) < INTERACT_COOLDOWN then return end
+
     local dist = utils.distance_to(altar)
     if dist > 2.5 then
         explorerlite:set_custom_target(altar:get_position())
@@ -123,11 +149,10 @@ function task.Execute()
         return
     end
 
-    -- Close enough – interact
-    console.print("[Reaper] Activating altar to summon boss.")
+    -- Close enough — interact and wait to confirm success
+    console.print("[Reaper] Interacting with altar.")
     interact_object(altar)
-    tracker.altar_activated = true
-    boss_summon_time = t
+    last_interact_time = t
 end
 
 return task
