@@ -263,8 +263,10 @@ function task.shouldExecute()
 
     if tracker.altar_activated and in_target_zone(boss) then return false end
     if in_target_zone(boss) and chest_visible() then return false end
+    -- Only yield to interact_altar when altar is close enough for pathfinder.request_move
+    -- to reach it reliably. Navigate_to_boss handles long-distance traversal via path files.
     local _altar = in_target_zone(boss) and utils.get_altar()
-    if _altar then
+    if _altar and utils.distance_to(_altar) <= 5.0 then
         if nav.state ~= STATE.IDLE then reset_nav() end
         return false
     end
@@ -329,7 +331,7 @@ function task.Execute()
         nav.path_exhausted = false
 
         if in_target_zone(boss) then
-            if utils.get_altar() ~= nil then reset_nav(); return end
+            -- Stale sigil dungeon: sigil_entry_t expired with no altar found
             if boss.run_type == "sigil" and tracker.sigil_entry_t > 0
                     and (now() - tracker.sigil_entry_t) > 60.0 then
                 console.print("[Reaper] Sigil zone with no altar and entry expired — stale dungeon, teleporting out.")
@@ -337,7 +339,9 @@ function task.Execute()
                 set_state(STATE.WAIT_EXIT)
                 return
             end
-            console.print("[Reaper] In zone — navigating to altar area.")
+            -- Always use path files to navigate to the altar — don't skip just
+            -- because the altar actor is visible (it could be across the room).
+            console.print("[Reaper] In zone — walking path to altar.")
             if BatmobilePlugin then
                 BatmobilePlugin.reset(plugin_label)
                 BatmobilePlugin.resume(plugin_label)
