@@ -62,6 +62,7 @@ local function on_enable()
         else
             console.print("[Reaper] consumable_items: unavailable")
         end
+        materials.print_all_consumables()
     end
 
     rotation.build(settings)
@@ -167,6 +168,13 @@ on_render(function()
     local boss         = rotation.current()
     local mat_counts   = materials.scan()
 
+    -- Centered task label above the character
+    if current_task then
+        local msg  = "Reaper: " .. current_task.name
+        local cx   = get_screen_width() / 2 - (#msg * 5.5)
+        graphics.text_2d(msg, vec2:new(cx, 80), 20, color_white(255))
+    end
+
     local x, y = 20, 60
     graphics.text_2d("=== REAPER  by Magoogle ===", vec2:new(x, y), 14, color_orange(255))
     y = y + 20
@@ -185,7 +193,7 @@ on_render(function()
     graphics.text_2d("Total kills: " .. tracker.total_kills, vec2:new(x, y), 12, color_green(255))
     y = y + 20
 
-    graphics.text_2d("── Materials ──", vec2:new(x, y), 12, color_white(180))
+    graphics.text_2d("-- Materials --", vec2:new(x, y), 12, color_white(180))
     y = y + 14
     for _, bd in ipairs(enums.boss_zones) do
         local runs = mat_counts[bd.id] or 0

@@ -105,6 +105,19 @@ function rotation.consume_run()
         boss.label, boss.run_type, boss.runs_remaining))
 
     if boss.runs_remaining <= 0 then
+        -- Re-verify inventory before advancing: if materials are still present the
+        -- in-script counter drifted and we should correct it rather than skip the boss.
+        if boss.run_type == "material" then
+            local mats   = materials.scan()
+            local actual = mats[boss.id] or 0
+            if actual > 0 then
+                console.print(string.format(
+                    "[Reaper] %s counter hit 0 but %d run(s) remain in inventory — correcting.",
+                    boss.label, actual))
+                boss.runs_remaining = actual
+                return
+            end
+        end
         console.print(string.format("[Reaper] %s done – moving to next.", boss.label))
         rotation.current_idx       = rotation.current_idx + 1
         tracker.current_boss_kills = 0

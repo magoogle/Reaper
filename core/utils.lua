@@ -82,8 +82,6 @@ function utils.get_closest_enemy()
 end
 
 -- Boss quest presence tracking.
--- The Boss_*_Primary quest appears when the boss spawns and disappears when it dies.
--- We track "seen" so we don't fire before the boss ever appears.
 local boss_quest_seen = false
 
 local function boss_quest_present()
@@ -99,7 +97,6 @@ local function boss_quest_present()
     return false
 end
 
--- Returns true once the boss quest was seen this run and has since disappeared.
 function utils.is_boss_quest_complete()
     local present = boss_quest_present()
     if present then
@@ -116,7 +113,19 @@ function utils.is_boss_quest_complete()
     return false
 end
 
--- Reset at the start of each new run.
+function utils.boss_quest_active()
+    local ok, quests = pcall(get_quests)
+    if not ok or type(quests) ~= "table" then return false end
+    for _, quest in ipairs(quests) do
+        local ok_n, name = pcall(function() return quest:get_name() end)
+        if ok_n and type(name) == "string"
+            and name:find("^Boss_") and name:find("_Primary$") then
+            return true
+        end
+    end
+    return false
+end
+
 function utils.reset_boss_quest_tracking()
     if boss_quest_seen then
         console.print("[Reaper] Boss quest tracking reset for new run.")

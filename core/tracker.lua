@@ -4,9 +4,10 @@
 
 local tracker = {
     -- timing
-    start_time        = 0,
-    finished_time     = 0,
-    chest_opened_time = nil,
+    start_time          = 0,
+    finished_time       = 0,
+    chest_opened_time   = nil,
+    altar_activate_time = 0,   -- get_time_since_inject() when altar was activated
 
     -- per-run flags
     altar_activated         = false,
@@ -26,6 +27,7 @@ local tracker = {
 
 function tracker.reset_run()
     tracker.altar_activated         = false
+    tracker.altar_activate_time     = 0
     tracker.boss_killed             = false
     tracker.chest_opened            = false
     tracker.belial_chest_interacted = false

@@ -14,6 +14,7 @@
 --    Andariel            3x Pincushioned Doll  (1812685)
 --    Harbinger           3x Abhorrent Heart    (2194097)
 --    Belial              2x Betrayer's Husk    (2194099)
+--    Butcher             3x BossSummoning      (2553531)
 --
 --  Sigil SNO IDs:
 --    Bloodied/Bloodsoaked Lair Boss Sigil  sno_id = 2565553 (0x2725B1)
@@ -34,6 +35,7 @@ local BOSS_MATS = {
     andariel  = { sno_id = 1812685, cost =  3 },  -- Pincushioned Doll
     harbinger = { sno_id = 2194097, cost =  3 },  -- Abhorrent Heart
     belial    = { sno_id = 2194099, cost =  2 },  -- Betrayer's Husk
+    butcher   = { sno_id = 2553531, cost =  3 },  -- BossSummoning_Butcher
 }
 
 -- -------------------------------------------------------
@@ -41,7 +43,7 @@ local BOSS_MATS = {
 -- -------------------------------------------------------
 local SIGIL_SNO = 2565553  -- Bloodied + Bloodsoaked share the same SNO ID
 
--- Maps display name substrings → boss_id
+-- Maps display name substrings -> boss_id
 local SIGIL_DISPLAY_MAP = {
     ["Hall of the Penitent"]  = "grigoire",
     ["Glacial Fissure"]       = "beast",
@@ -135,10 +137,10 @@ function materials.scan_sigils()
             local boss_id = ok_d and boss_from_display(display) or nil
             if boss_id then
                 result[boss_id] = (result[boss_id] or 0) + 1
-                console.print(string.format("[Reaper] Sigil found: '%s' → %s", tostring(display), boss_id))
+                console.print(string.format("[Reaper] Sigil found: '%s' -> %s", tostring(display), boss_id))
             else
                 result["unknown"] = (result["unknown"] or 0) + 1
-                console.print(string.format("[Reaper] Sigil UNMAPPED: '%s' (sno=0x%X) — add to SIGIL_DISPLAY_MAP",
+                console.print(string.format("[Reaper] Sigil UNMAPPED: '%s' (sno=0x%X) -- add to SIGIL_DISPLAY_MAP",
                     tostring(display), sno))
             end
         end
@@ -151,6 +153,27 @@ function materials.print_summary()
     console.print("[Reaper] Material scan:")
     for boss_id, runs in pairs(counts) do
         console.print(string.format("  %-12s %d runs", boss_id, runs))
+    end
+end
+
+function materials.print_all_consumables()
+    local lp = get_local_player()
+    if not lp then console.print("[Reaper] print_all_consumables: no local player"); return end
+    local ok, items = pcall(function() return lp:get_consumable_items() end)
+    if not ok or type(items) ~= "table" then
+        console.print("[Reaper] print_all_consumables: could not read consumable items")
+        return
+    end
+    console.print(string.format("[Reaper] Consumable inventory (%d item slots):", #items))
+    for _, item in ipairs(items) do
+        local ok_sno,  sno   = pcall(function() return item:get_sno_id() end)
+        local ok_name, name  = pcall(function() return item:get_name() end)
+        local ok_disp, disp  = pcall(function() return item:get_display_name() end)
+        local ok_cnt,  cnt   = pcall(function() return item:get_stack_count() end)
+        local sno_str  = ok_sno  and string.format("sno=%d (0x%X)", sno, sno) or "sno=?"
+        local name_str = ok_name and name  or (ok_disp and disp or "unknown")
+        local cnt_str  = ok_cnt  and tostring(cnt > 0 and cnt or 1)            or "?"
+        console.print(string.format("  [%s]  x%-4s  %s", sno_str, cnt_str, name_str))
     end
 end
 
