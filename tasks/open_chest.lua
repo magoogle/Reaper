@@ -2,11 +2,16 @@
 --  Reaper - tasks/open_chest.lua
 --
 --  Phases:
---    MAIN          -> walk to EGB/Belial chest, interact
---    WAIT_GONE     -> wait for main chest to despawn (up to 10s)
---                    if it never despawns = out of materials -> stop
---    THEME         -> look for DOOM/seasonal theme chest (up to 20s)
---    WAIT_COMPLETE -> 3s pause, then consume_run + reset for next cycle
+--    MAIN          → walk to EGB/Belial chest, interact
+--    WAIT_GONE     → wait for main chest to despawn (up to WAIT_GONE_SECS)
+--                    if it never despawns = out of materials → stop
+--    WAIT_COMPLETE → brief pause to loot, then consume_run + reset for next cycle
+--
+--  Doom/seasonal "theme" chest was removed from D4 (2026-05-03 patch);
+--  the entire THEME phase and S12_Prop_Theme_Chest_* logic is gone. For
+--  material runs the EGB/boss chest IS the run-completion signal. For sigil
+--  runs (no EGB chest) tasks/sigil_complete.lua drives the wrap-up via
+--  enemy-cleared detection.
 -- ============================================================
 
 local utils     = require "core.utils"
@@ -16,30 +21,19 @@ local enums     = require "data.enums"
 local materials = require "core.materials"
 
 -- ---- Config ----
-local CHEST_INTERACT_COOLDOWN      = 0.5  -- min seconds between EGB chest interact attempts
-local THEME_INTERACT_COOLDOWN      = 1.0  -- min seconds between doom/theme chest interact attempts
-local IDLE_RECOVERY_COOLDOWN       = 15.0 -- seconds after theme interact before IDLE recovery fires
-local WAIT_GONE_SECS          = 10
-local THEME_WAIT_SECS         = 20
-local SIGIL_THEME_WAIT_SECS   = 15
-local WAIT_COMPLETE_SECS      = 3
-local OUT_OF_MATS_RETRIES     = 3
-local CHEST_SEARCH_RADIUS     = 40.0
+local CHEST_INTERACT_COOLDOWN = 0.5  -- min seconds between EGB chest interact attempts
+local WAIT_GONE_SECS          = 10   -- if chest still here after this → out of mats
+local WAIT_COMPLETE_SECS      = 3    -- pause after chest before next run
+local OUT_OF_MATS_RETRIES     = 3    -- times chest can fail to despawn before stopping
 
 -- ---- State ----
-local phase                  = "IDLE"
-local phase_start            = 0
-local last_interact_time     = 0
-local last_theme_interact_t  = 0
-local last_chest_pos         = nil
-local no_despawn_count       = 0
-local _doom_log_t            = nil
-local doom_chest_interacted  = false
+local phase              = "IDLE"
+local phase_start        = 0
+local last_interact_time = 0
+local last_chest_pos     = nil
+local no_despawn_count   = 0    -- counts consecutive failures to despawn
 
 local function set_phase(p)
-    if p == "IDLE" then
-        doom_chest_interacted = false
-    end
     phase       = p
     phase_start = os.time()
     console.print("[Chest] Phase: " .. p)
@@ -53,24 +47,11 @@ local function cooldown_ok()
     return (get_time_since_inject() - last_interact_time) >= CHEST_INTERACT_COOLDOWN
 end
 
-local function theme_cooldown_ok()
-    return (get_time_since_inject() - last_theme_interact_t) >= THEME_INTERACT_COOLDOWN
-end
-
 -- ---- Actor finders ----
 local function _interactable(a)
     if not a then return false end
     local ok, v = pcall(function() return a:is_interactable() end)
     return ok and v == true
-end
-
-local function get_chest_anchor()
-    local altar = utils.get_altar()
-    if altar then return altar:get_position() end
-    if last_chest_pos then return last_chest_pos end
-    local boss = rotation.current()
-    if boss then return enums.positions.getBossRoomPosition(boss.zone_prefix) end
-    return nil
 end
 
 local function find_egb_chest()
@@ -88,22 +69,6 @@ local function find_egb_chest()
                     if d < best_dist then best = a; best_dist = d end
                 end
             end
-        end
-    end
-    return best
-end
-
-local function find_theme_chest()
-    local actors = actors_manager.get_all_actors()
-    if type(actors) ~= "table" then return nil end
-    local best, best_dist = nil, math.huge
-    local lp = get_local_player()
-    local pp = lp and lp:get_position()
-    for _, a in pairs(actors) do
-        local n = a:get_skin_name()
-        if type(n) == "string" and n:find("^S12_Prop_Theme_Chest_") and _interactable(a) then
-            local d = pp and pp:dist_to(a:get_position()) or 0
-            if d < best_dist then best = a; best_dist = d end
         end
     end
     return best
@@ -161,31 +126,22 @@ function task.shouldExecute()
         end
         return false
     end
-    if phase == "WAIT_GONE" or phase == "THEME" or phase == "WAIT_COMPLETE" then
+    -- Active mid-sequence
+    if phase == "WAIT_GONE" or phase == "WAIT_COMPLETE" then
         return true
     end
+    -- Sigil runs have no EGB chest and (with the doom chest removed) no chest
+    -- at all — sigil_complete drives wrap-up via enemy-cleared detection.
     local boss = rotation.current()
     if boss and boss.run_type == "sigil" then
-        if tracker.sigil_chest_done then return false end
-        if phase ~= "IDLE" then return true end
-        return tracker.altar_activated
+        return false
     end
-    -- IDLE recovery: if doom chest visible but EGB already gone, resume THEME
-    if (get_time_since_inject() - last_theme_interact_t) >= IDLE_RECOVERY_COOLDOWN then
-        if find_theme_chest() ~= nil and find_egb_chest() == nil then
-            if phase ~= "THEME" then
-                console.print("[Chest] Theme chest visible from IDLE (no EGB chest) — resuming THEME phase.")
-                set_phase("THEME")
-            end
-            return true
-        end
-    end
+    -- Trigger on EGB/boss chest visibility
     return find_egb_chest() ~= nil
 end
 
 function task.Execute()
-    local t = get_time_since_inject()
-
+    -- Stuck recovery
     if check_stuck() then
         local pos = get_player_position()
         if pos then
@@ -195,15 +151,8 @@ function task.Execute()
         return
     end
 
-    -- ---- IDLE / MAIN ----
+    -- ---- IDLE / MAIN: find and open the EGB chest ----
     if phase == "IDLE" or phase == "MAIN" then
-        local boss = rotation.current()
-        if boss and boss.run_type == "sigil" then
-            console.print("[Chest] Sigil run — skipping to Doom chest.")
-            set_phase("THEME")
-            return
-        end
-
         local chest = find_egb_chest()
         if not chest then return end
 
@@ -220,6 +169,7 @@ function task.Execute()
         tracker.chest_opened_time = os.time()
         last_chest_pos = chest:get_position()
 
+        -- Signal Belial chest UI task
         local n = chest:get_skin_name()
         if type(n) == "string" and n:find("^Boss_WT_Belial_") then
             tracker.belial_chest_interacted = true
@@ -230,18 +180,20 @@ function task.Execute()
         return
     end
 
-    -- ---- WAIT_GONE ----
+    -- ---- WAIT_GONE: wait for chest to despawn ----
     if phase == "WAIT_GONE" then
         local chest = find_egb_chest()
 
         if chest == nil then
+            -- Chest gone – run is complete (no theme chest to chase any more).
             no_despawn_count = 0
-            set_phase("THEME")
+            set_phase("WAIT_COMPLETE")
             return
         end
 
         if phase_elapsed() < WAIT_GONE_SECS then return end
 
+        -- Chest still here after timeout
         no_despawn_count = no_despawn_count + 1
         console.print(string.format("[Chest] Chest didn't despawn (%d/%d) – out of materials?",
             no_despawn_count, OUT_OF_MATS_RETRIES))
@@ -250,8 +202,12 @@ function task.Execute()
             no_despawn_count = 0
             local boss = rotation.current()
 
-            -- Re-verify actual inventory before declaring out of materials
-            if boss and boss.run_type == "material" then
+            -- Re-verify actual inventory before declaring out of materials.
+            -- Chest may have failed to despawn due to lag or a missed interact.
+            -- BUT: external (orchestrator-injected) rotations are explicit
+            -- one-shots — never extend the run from inventory, even if the
+            -- chest is misbehaving. Otherwise the altar can re-fire.
+            if boss and boss.run_type == "material" and not rotation.external then
                 local actual = materials.scan()[boss.id] or 0
                 if actual > 0 then
                     console.print(string.format(
@@ -269,6 +225,7 @@ function task.Execute()
             tracker.reset_run()
             set_phase("IDLE")
         else
+            -- Try interacting again
             if cooldown_ok() then
                 interact_object(chest)
                 last_interact_time = get_time_since_inject()
@@ -278,82 +235,14 @@ function task.Execute()
         return
     end
 
-    -- ---- THEME ----
-    if phase == "THEME" then
-        local cur_boss = rotation.current()
-        local theme_timeout = (cur_boss and cur_boss.run_type == "sigil")
-            and SIGIL_THEME_WAIT_SECS or THEME_WAIT_SECS
-        local elapsed = phase_elapsed()
-        if elapsed > theme_timeout then
-            console.print(string.format("[Chest] No theme chest after %.0fs — moving on.", elapsed))
-            set_phase("WAIT_COMPLETE")
-            return
-        end
-
-        local chest = find_theme_chest()
-        if not chest then
-            local anchor = get_chest_anchor()
-            if anchor then
-                local d = utils.distance_to(anchor)
-                local now_s = os.time()
-                if not _doom_log_t or now_s ~= _doom_log_t then
-                    _doom_log_t = now_s
-                    console.print(string.format("[Chest] Searching for doom chest... %.0fs/%.0fs  dist_to_anchor=%.1f",
-                        elapsed, theme_timeout, d))
-                end
-                pathfinder.request_move(anchor)
-            end
-            return
-        end
-
-        local dist     = utils.distance_to(chest:get_position())
-        local inter    = _interactable(chest)
-        local cooldown = theme_cooldown_ok()
-
-        local now_s = os.time()
-        if not _doom_log_t or now_s ~= _doom_log_t then
-            _doom_log_t = now_s
-            console.print(string.format("[Chest] Doom chest: %s  dist=%.1f  interactable=%s  cooldown_ok=%s",
-                chest:get_skin_name(), dist, tostring(inter), tostring(cooldown)))
-        end
-
-        if dist > 2.5 then
-            pathfinder.request_move(chest:get_position())
-            return
-        end
-
-        if not inter then return end
-        if not cooldown then return end
-
-        interact_object(chest)
-        last_theme_interact_t = get_time_since_inject()
-        tracker.chest_opened_time = os.time()
-        doom_chest_interacted = true
-        console.print("[Chest] Theme chest opened.")
-        set_phase("WAIT_COMPLETE")
-        return
-    end
-
-    -- ---- WAIT_COMPLETE ----
+    -- ---- WAIT_COMPLETE: brief pause to loot, then start next run ----
     if phase == "WAIT_COMPLETE" then
         if phase_elapsed() < WAIT_COMPLETE_SECS then return end
-        -- Safety: if doom chest appeared but wasn't interacted, go back to THEME
-        if not doom_chest_interacted and find_egb_chest() == nil and find_theme_chest() ~= nil then
-            console.print("[Chest] Doom chest visible but not yet opened — returning to THEME.")
-            set_phase("THEME")
-            return
-        end
         local boss = rotation.current()
-        local is_sigil = boss and boss.run_type == "sigil"
         console.print(string.format("[Chest] Run complete — boss=%s  run_type=%s",
             tostring(boss and boss.id), tostring(boss and boss.run_type)))
-        if is_sigil then
-            tracker.sigil_chest_done = true
-            console.print("[Chest] Doom chest done — signalling sigil_complete.")
-        else
-            rotation.consume_run()
-            tracker.reset_run()
-        end
+        rotation.consume_run()
+        tracker.reset_run()
         set_phase("IDLE")
         last_chest_pos = nil
         return

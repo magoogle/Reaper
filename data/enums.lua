@@ -25,6 +25,9 @@ enums.altar_names = {
 
 -- -------------------------------------------------------
 -- Boss definitions
+-- Belial is included for farming runs but excluded from
+-- the Belial chest boss-selection list (it's the host boss).
+-- harbinger and urivar are WT5 variants accessible via Belial chest.
 -- -------------------------------------------------------
 enums.boss_zones = {
     { id="duriel",    zone_prefix="Boss_WT4_Duriel",         label="Duriel"              },
@@ -76,7 +79,7 @@ enums.positions = {
         ["Boss_WT4_Andariel"]       = vec3:new( 8.2821,  -8.7344, -6.223),
         ["Boss_WT4_MegaDemon"]      = vec3:new( 4.9245,   5.3086,  0.127),
         ["_Varshan"]                = vec3:new(-3.2805,  -3.1949, -3.304),
-        ["Boss_WT5_Harbinger"]      = vec3:new( 0.93,    16.18,   0.0),
+        ["Boss_WT5_Harbinger"]      = vec3:new( 2.9,     15.0,    0.0),
     },
 }
 
@@ -91,8 +94,9 @@ end
 enums.chest_patterns = {
     "^EGB_Chest",
     "^Boss_WT_Belial_",
-    "^S12_Prop_Theme_Chest_",
     "^Chest_Boss",
+    -- Doom/seasonal "S12_Prop_Theme_Chest_" was removed from D4 (2026-05-03)
+    -- and is intentionally absent from this list; do not add back.
 }
 
 -- -------------------------------------------------------

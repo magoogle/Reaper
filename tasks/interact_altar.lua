@@ -13,9 +13,14 @@ local enums        = require "data.enums"
 local explorerlite = require "core.explorerlite"
 local tracker      = require "core.tracker"
 local rotation     = require "core.boss_rotation"
+local settings     = require "core.settings"
 
-local CERRIGAR_WP    = 0x76D58
-local STUCK_TIMEOUT  = 60.0  -- seconds after altar_activated before declaring stuck
+
+local STUCK_TIMEOUT  = 60.0  -- inventory-driven runs: long timeout, recover and retry
+local EXTERNAL_LOCKOUT_DELAY = 25.0  -- external one-shot: after altar interact, lock the
+                                     -- altar out at this window even if no chest appears.
+                                     -- Materials drift season-to-season (butcher 2026-05-03);
+                                     -- the chest is no longer required to count the kill.
 
 local plugin_label = 'reaper'
 
@@ -62,7 +67,7 @@ local function any_chest_visible()
             local n = a:get_skin_name()
             if type(n) == "string" then
                 if n:find("^EGB_Chest") or n:find("^Chest_Boss")
-                    or n:find("^Boss_WT_Belial_") or n:find("^S12_Prop_Theme_Chest_") then
+                    or n:find("^Boss_WT_Belial_") then
                     return true
                 end
             end
@@ -72,17 +77,41 @@ local function any_chest_visible()
 end
 
 function task.shouldExecute()
+    -- Hard lockout: under an external rotation, once consume_run has fired
+    -- the altar is done forever for this run. Belt-and-suspenders against any
+    -- code path (chest reappear, navigate_to_boss confusion, etc.) that
+    -- might otherwise let it re-trigger.
+    if rotation.external and rotation.external_consumed then
+        return false
+    end
+
     if tracker.altar_activated then
-        -- Deadlock recovery: altar was activated but no chest appeared after STUCK_TIMEOUT.
         if tracker.altar_activate_time > 0 then
             local elapsed = get_time_since_inject() - tracker.altar_activate_time
-            if elapsed > STUCK_TIMEOUT and not any_chest_visible() then
+            if rotation.external then
+                -- External one-shot: don't wait for a chest that may never
+                -- appear (materials/quest changed this season — the war plan
+                -- completes on the kill, not on the chest open). After
+                -- EXTERNAL_LOCKOUT_DELAY, force the rotation forward so
+                -- main.lua's is_done path tps out and disables the plugin.
+                -- consume_run is idempotent under external, so a chest open
+                -- arriving later in the same window is a no-op.
+                if elapsed > EXTERNAL_LOCKOUT_DELAY and not rotation.external_consumed then
+                    console.print(string.format(
+                        "[Reaper] External one-shot: %.0fs since altar, no chest opened — forcing rotation done.",
+                        elapsed))
+                    rotation.consume_run()
+                    tracker.reset_run()
+                    last_interact_time = 0
+                end
+            elseif elapsed > STUCK_TIMEOUT and not any_chest_visible() then
+                -- Inventory-driven run: long-window deadlock recovery (retry).
                 console.print(string.format(
                     "[Reaper] Altar activated %.0fs ago — no chest found. Resetting run.",
                     elapsed))
                 last_interact_time = 0
                 tracker.reset_run()
-                teleport_to_waypoint(CERRIGAR_WP)
+                teleport_to_waypoint(settings.town_waypoint)
             end
         end
         return false
@@ -112,7 +141,7 @@ function task.shouldExecute()
                 local name = actor:get_skin_name()
                 if type(name) == "string" then
                     if name:find("^EGB_Chest") or name:find("^Boss_WT_Belial_")
-                            or name:find("^Chest_Boss") or name:find("^S12_Prop_Theme_Chest_") then
+                            or name:find("^Chest_Boss") then
                         return false
                     end
                 end

@@ -1,11 +1,13 @@
 -- ============================================================
 --  Reaper - tasks/sigil_complete.lua
 --
---  Detects when a sigil run is complete (no enemies for 5s after Doom chest opened)
---  then:
+--  Detects when a sigil run is complete (no enemies for 5s) then:
 --    1. Calls rotation.consume_run() + tracker.reset_run()
 --    2. Teleports back to Cerrigar
 --    3. Waits to land (navigate_to_boss handles next sigil activation)
+--
+--  The Doom/seasonal "theme" chest was removed from D4 (2026-05-03 patch);
+--  enemy-cleared is the sole completion signal now.
 -- ============================================================
 
 local utils    = require "core.utils"
@@ -13,8 +15,7 @@ local tracker  = require "core.tracker"
 local rotation = require "core.boss_rotation"
 local settings = require "core.settings"
 
-local CERRIGAR_WP   = 0x76D58
-local CERRIGAR_ZONE = "Scos_Cerrigar"
+-- Home town now resolved per pulse from settings.town_zone / settings.town_waypoint.
 local NO_ENEMY_TIMEOUT = 5.0   -- seconds with no enemies before declaring run complete
 
 local STATE = {
@@ -45,31 +46,11 @@ local function in_sigil_zone()
         or zone:find("Boss_Kehj")  ~= nil
 end
 
-local DOOM_CHEST_SKIN = "s12_prop_theme_chest_"  -- lowercase for case-insensitive match
-
-local function doom_chest_opened()
-    -- Returns true if no Doom chest is visible (already opened or never spawned)
-    local actors = actors_manager:get_all_actors()
-    for _, actor in pairs(actors) do
-        local ok, name = pcall(function() return actor:get_skin_name() end)
-        if ok and type(name) == "string" and name:lower():find(DOOM_CHEST_SKIN) then
-            local ok2, inter = pcall(function() return actor:is_interactable() end)
-            if ok2 and inter then
-                return false  -- chest still interactable = not opened yet
-            end
-        end
-    end
-    return true  -- no interactable doom chest found = opened or not present
-end
-
 local task = { name = "Sigil Complete" }
 
 function task.shouldExecute()
     local boss = rotation.current()
     if not boss or boss.run_type ~= "sigil" then return false end
-
-    -- Yield to open_chest when the Doom chest is visible and not yet opened
-    if not doom_chest_opened() then return false end
 
     -- Keep running mid-sequence
     if s.state ~= STATE.IDLE then return true end
@@ -122,16 +103,8 @@ function task.Execute()
         end
 
         if idle_time >= NO_ENEMY_TIMEOUT then
-            -- Make sure the Doom chest is opened before leaving
-            if not doom_chest_opened() then
-                if (t - s.last_log_t) >= 5.0 then
-                    console.print("[Reaper] Waiting for Doom chest to be opened...")
-                    s.last_log_t = t
-                end
-                return
-            end
-            console.print("[Reaper] Sigil run complete — teleporting to Cerrigar.")
-            teleport_to_waypoint(CERRIGAR_WP)
+            console.print("[Reaper] Sigil run complete — teleporting to " .. settings.town_zone .. ".")
+            teleport_to_waypoint(settings.town_waypoint)
             set_state(STATE.TELEPORTING)
         end
         return
@@ -145,11 +118,11 @@ function task.Execute()
         return
     end
 
-    -- ---- WAIT_TOWN: wait to land in Cerrigar, then count the run ----
+    -- ---- WAIT_TOWN: wait to land in the home town, then count the run ----
     if s.state == STATE.WAIT_TOWN then
-        if utils.player_in_zone(CERRIGAR_ZONE) then
+        if utils.player_in_zone(settings.town_zone) then
             if (t - s.t) >= 2.0 then
-                console.print("[Reaper] Back in Cerrigar — counting run.")
+                console.print("[Reaper] Back in " .. settings.town_zone .. " — counting run.")
                 rotation.consume_run()
                 tracker.reset_run()
                 set_state(STATE.IDLE)
@@ -159,7 +132,7 @@ function task.Execute()
         -- Timeout — retry teleport
         if (t - s.t) >= 20.0 then
             console.print("[Reaper] Town wait timeout — retrying teleport.")
-            teleport_to_waypoint(CERRIGAR_WP)
+            teleport_to_waypoint(settings.town_waypoint)
             set_state(STATE.TELEPORTING)
         end
         return

@@ -1,5 +1,5 @@
 -- ============================================================
---  Reaper  v1.0
+--  Reaper  v1.1
 --  by Magoogle
 --
 --  Flow per run:
@@ -20,8 +20,8 @@ local tracker      = require "core.tracker"
 local enums        = require "data.enums"
 local materials    = require "core.materials"
 
-local CERRIGAR_WP   = 0x76D58
-local CERRIGAR_ZONE = "Scos_Cerrigar"
+-- Home town now resolved per pulse from settings.town_zone / settings.town_waypoint
+-- (driven by the gui.town combo_box). Defaults to Temis to match Arkham/Alfred.
 
 -- -------------------------------------------------------
 -- Enable guard — only fires once per toggle-on
@@ -77,6 +77,9 @@ end
 
 local function on_disable()
     task_manager.reset_all()
+    -- Drop any one-shot rotation injected by an external orchestrator so the
+    -- next manual enable goes back to inventory-derived farming.
+    rotation.clear_external()
     console.print("[Reaper] Stopped.")
     console.print(string.format("[Reaper] Total runs completed this session: %d", tracker.total_kills))
 end
@@ -131,12 +134,12 @@ on_update(function()
     local lp = get_local_player()
     if not lp then return end
 
-    -- When rotation is done, return to Cerrigar then disable
+    -- When rotation is done, return to home town then disable
     if rotation.is_done() or finishing then
         if not finishing then
-            console.print("[Reaper] All runs complete — returning to Cerrigar.")
+            console.print("[Reaper] All runs complete — returning to " .. settings.town_zone .. ".")
             task_manager.reset_all()
-            teleport_to_waypoint(CERRIGAR_WP)
+            teleport_to_waypoint(settings.town_waypoint)
             finishing     = true
             finish_tp_time = get_time_since_inject()
             return
@@ -144,7 +147,7 @@ on_update(function()
         local world   = get_current_world()
         local zone    = world and world:get_current_zone_name() or ""
         local elapsed = get_time_since_inject() - finish_tp_time
-        if zone == CERRIGAR_ZONE or elapsed > 30.0 then
+        if zone == settings.town_zone or elapsed > 30.0 then
             console.print("[Reaper] All runs complete. Disabling.")
             finishing          = false
             gui.elements.main_toggle:set(false)
@@ -168,7 +171,7 @@ on_render(function()
     local boss         = rotation.current()
     local mat_counts   = materials.scan()
 
-    -- Centered task label above the character
+    -- Centered task label above the character (same style as ArkhamAsylum)
     if current_task then
         local msg  = "Reaper: " .. current_task.name
         local cx   = get_screen_width() / 2 - (#msg * 5.5)
@@ -193,7 +196,7 @@ on_render(function()
     graphics.text_2d("Total kills: " .. tracker.total_kills, vec2:new(x, y), 12, color_green(255))
     y = y + 20
 
-    graphics.text_2d("-- Materials --", vec2:new(x, y), 12, color_white(180))
+    graphics.text_2d("── Materials ──", vec2:new(x, y), 12, color_white(180))
     y = y + 14
     for _, bd in ipairs(enums.boss_zones) do
         local runs = mat_counts[bd.id] or 0
@@ -211,10 +214,29 @@ on_render_menu(gui.render)
 ReaperPlugin = {
     enable  = function() gui.elements.main_toggle:set(true)  end,
     disable = function() gui.elements.main_toggle:set(false) end,
+
+    -- Externally request a single-boss run. boss_id must match an entry in
+    -- enums.boss_zones (e.g. "duriel", "andariel", "varshan"). run_type is
+    -- "material" (default) or "sigil". Resets prior task state and enables
+    -- the plugin. Returns true on success, false if boss_id is unknown.
+    run_boss = function(boss_id, run_type)
+        if not rotation.set_external(boss_id, run_type) then
+            return false
+        end
+        task_manager.reset_all()
+        gui.elements.main_toggle:set(true)
+        return true
+    end,
+
+    -- Drop the external rotation without disabling. Useful if an orchestrator
+    -- wants to hand control back to inventory-driven farming.
+    clear_external = function() rotation.clear_external() end,
+
     status  = function()
         return {
             enabled    = gui.elements.main_toggle:get(),
             boss       = rotation.current() and rotation.current().label or "None",
+            external   = rotation.external,
             total_runs = tracker.total_kills,
             task       = task_manager.get_current_task(),
         }
@@ -222,6 +244,6 @@ ReaperPlugin = {
 }
 
 console.print("=============================================")
-console.print("  Reaper  v1.0  by Magoogle  - Loaded")
+console.print("  Reaper  v1.1  by Magoogle  - Loaded")
 console.print("  Enable in menu to start reaping")
 console.print("=============================================")

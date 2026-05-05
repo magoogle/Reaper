@@ -14,7 +14,6 @@
 --    Andariel            3x Pincushioned Doll  (1812685)
 --    Harbinger           3x Abhorrent Heart    (2194097)
 --    Belial              2x Betrayer's Husk    (2194099)
---    Butcher             3x BossSummoning      (2553531)
 --
 --  Sigil SNO IDs:
 --    Bloodied/Bloodsoaked Lair Boss Sigil  sno_id = 2565553 (0x2725B1)
@@ -43,7 +42,7 @@ local BOSS_MATS = {
 -- -------------------------------------------------------
 local SIGIL_SNO = 2565553  -- Bloodied + Bloodsoaked share the same SNO ID
 
--- Maps display name substrings -> boss_id
+-- Maps display name substrings → boss_id
 local SIGIL_DISPLAY_MAP = {
     ["Hall of the Penitent"]  = "grigoire",
     ["Glacial Fissure"]       = "beast",
@@ -137,10 +136,10 @@ function materials.scan_sigils()
             local boss_id = ok_d and boss_from_display(display) or nil
             if boss_id then
                 result[boss_id] = (result[boss_id] or 0) + 1
-                console.print(string.format("[Reaper] Sigil found: '%s' -> %s", tostring(display), boss_id))
+                console.print(string.format("[Reaper] Sigil found: '%s' → %s", tostring(display), boss_id))
             else
                 result["unknown"] = (result["unknown"] or 0) + 1
-                console.print(string.format("[Reaper] Sigil UNMAPPED: '%s' (sno=0x%X) -- add to SIGIL_DISPLAY_MAP",
+                console.print(string.format("[Reaper] Sigil UNMAPPED: '%s' (sno=0x%X) — add to SIGIL_DISPLAY_MAP",
                     tostring(display), sno))
             end
         end
