@@ -5,7 +5,7 @@ Farms a user-selected set of bosses using **Lair Keys** / **Greater Lair Keys** 
 ## Requirements
 
 - An active combat / orbwalker script — Reaper handles navigation and interaction only.
-- **D4Assistant** (recommended) or the built-in map-click navigation (see below).
+- Optionally **BatmobilePlugin** for autonomous A\* navigation (auto-engages as a fallback when path files fail).
 - Optionally **Alfred** for inventory management between runs.
 
 ## Setup
@@ -36,16 +36,13 @@ The two Lair Key SNOs (regular + Initiate) are functionally the same item and bo
 
 Each boss's required key is set by its `key_tier` field in `data/enums.lua`. Edit that file to change which tier a boss expects. A boss is removed from the rotation when its required tier hits zero, regardless of whether other tiers still have stock.
 
-## Navigation Modes
+## Navigation
 
-### D4Assistant (default)
-Reaper writes a teleport command to `command.txt` and waits for D4Assistant to move you to the boss zone. No calibration needed.
+Reaper teleports directly to each boss dungeon via the runtime API call `teleport_to_boss_dungeon(sno)` — no map clicks, no `command.txt`, no external assistant required. From the dungeon entrance:
 
-### Built-in Map Navigation (D4Assistant disabled)
-Reaper teleports directly to the boss dungeon via `teleport_to_boss_dungeon(sno)` and falls back to walking the recorded path file (or to Batmobile, see below). No calibration needed.
-
-### Batmobile Fallback
-Whether or not the **Use Batmobile Navigation** toggle is on, BatmobilePlugin is automatically engaged as a fallback whenever a boss has no path file or a path-file walk completes without the altar in sight. Toggle the setting on to use Batmobile as the primary navigation everywhere.
+1. **Path-file walk (default).** A pre-recorded waypoint file under `paths/<boss>_<variant>.lua` drives the player to the altar. Multiple variants are supported; Reaper picks the closest one to the player on entry.
+2. **Batmobile fallback (automatic).** If no path file exists, or a path-file walk completes without the altar in sight, Reaper auto-engages **BatmobilePlugin**'s `navigate_long_path` (uncapped A\*) the rest of the way. No toggle needed — it just works when Batmobile is loaded.
+3. **Use Batmobile Navigation toggle (optional).** Tick this in **Settings** to make Batmobile the primary nav everywhere, skipping path files. Useful when Blizzard reshuffles dungeon layouts and the recorded paths drift.
 
 ## Belial Chest Automation
 
@@ -84,15 +81,17 @@ During boss fights Reaper keeps the player within **15 units of the altar/anchor
 
 | Setting | Default | Description |
 |---|---|---|
-| Use D4Assistant | On | Delegate teleports to D4Assistant via `command.txt` |
-| Use Alfred | On | Hand off inventory/repair/restock to Alfred |
-| Bosses to Farm | All off | Per-boss checkboxes — tick the ones you want to run |
-| Dungeon Reset | Off | Reset dungeons every N runs |
-| Dungeon Reset Interval | 10 | Runs between dungeon resets |
+| Home town | Temis | Town to return to between runs (matches Alfred / Arkham). |
+| Use Alfred | On | Hand off inventory/repair/restock to Alfred between runs. |
+| Use Batmobile Navigation | Off | Force Batmobile as the primary navigation. When off, path files run first and Batmobile auto-engages on failure. |
+| Bosses to Farm | All off | Per-boss checkboxes (Round Robin / Random) or single boss dropdown (Manual). |
+| Rotation Mode | Round Robin | Manual / Round Robin / Random — how the script cycles through ticked bosses. |
+| Dungeon Reset | Off | Reset dungeons every N runs. |
+| Dungeon Reset Interval | 10 | Runs between dungeon resets. |
 
 ## Notes
 
 - Inventory is scanned once at enable time. Re-enable to refresh.
 - If the EGB / boss chest fails to despawn after several interact attempts, Reaper re-scans inventory: if stock remains the run retries; otherwise the boss is skipped.
-- If the built-in map navigation fails to reach the boss zone after 3 retries it gives up and the outer task manager attempts again on the next cycle.
+- If the boss-dungeon teleport fails to reach the target zone after 3 retries it gives up and the outer task manager attempts again on the next cycle.
 - Paths from your zone entrance to the altar are stored in `paths/<boss>_<variant>.lua`. Multiple variants are supported and the closest one is picked at runtime.
