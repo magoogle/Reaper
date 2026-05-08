@@ -1,5 +1,5 @@
 -- ============================================================
---  Reaper  v1.7
+--  Reaper  v1.8
 --  by Magoogle
 --
 --  Flow per run:
@@ -60,16 +60,25 @@ local function on_enable()
         return rotation.initialized
     end
 
-    -- List which bosses the user has enabled
-    local selected = {}
-    for _, bd in ipairs(enums.boss_zones) do
-        if settings.boss_enabled[bd.id] then selected[#selected + 1] = bd.label end
+    -- Validate boss selection based on rotation mode
+    if settings.boss_rotation_mode == "manual" then
+        -- Manual mode uses the boss_target dropdown, not checkboxes
+        if not settings.boss_target or settings.boss_target == "" then
+            console.print("[Reaper] Manual mode: no boss target set — open menu and pick a boss.")
+            return false
+        end
+        console.print("[Reaper] Manual mode: targeting " .. settings.boss_target)
+    else
+        local selected = {}
+        for _, bd in ipairs(enums.boss_zones) do
+            if settings.boss_enabled[bd.id] then selected[#selected + 1] = bd.label end
+        end
+        if #selected == 0 then
+            console.print("[Reaper] No bosses selected — open menu and tick the bosses you want to farm.")
+            return false
+        end
+        console.print("[Reaper] Selected: " .. table.concat(selected, ", "))
     end
-    if #selected == 0 then
-        console.print("[Reaper] No bosses selected — open menu and tick the bosses you want to farm.")
-        return false
-    end
-    console.print("[Reaper] Selected: " .. table.concat(selected, ", "))
 
     -- Dump inventory so the user can verify SNO IDs in core/materials.lua
     materials.print_all_keys()
@@ -288,6 +297,6 @@ ReaperPlugin = {
 }
 
 console.print("=============================================")
-console.print("  Reaper  v1.7  by Magoogle  - Loaded")
+console.print("  Reaper  v1.8  by Magoogle  - Loaded")
 console.print("  Enable in menu to start reaping")
 console.print("=============================================")
