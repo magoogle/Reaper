@@ -27,6 +27,11 @@ for _, bd in ipairs(enums.belial_chest_bosses) do
     chest_boss_labels[#chest_boss_labels + 1] = bd.label
 end
 
+local boss_zone_labels = {}
+for _, bd in ipairs(enums.boss_zones) do
+    boss_zone_labels[#boss_zone_labels + 1] = bd.label
+end
+
 local SEL_MODES = { "Manual", "Round Robin", "Random" }
 
 -- Town options match ArkhamAsylum's order so a user picking the same town
@@ -66,8 +71,11 @@ gui.elements = {
     -- Default 0 = Temis (matches ArkhamAsylum's default).
     town          = cbo(0,    "town"),
 
-    -- Per-boss farm toggles (populated below from enums.boss_zones)
-    boss_enabled  = {},
+    -- Boss rotation mode + targets
+    -- 0 = Manual, 1 = Round Robin, 2 = Random.  Default 1 (Round Robin).
+    boss_rotation_mode = cbo(1, "boss_mode"),
+    boss_target        = cbo(0, "boss_target"),
+    boss_enabled       = {},  -- per-boss toggles for RR / Random pool
 
     belial_chest_enabled = cb(false, "bel_en"),
     belial_sel_mode      = cbo(0,    "bel_mode"),
@@ -86,27 +94,38 @@ end
 
 -- -------------------------------------------------------
 function gui.render()
-    if not gui.elements.main_tree:push(plugin_label .. "  v1.4  by Magoogle") then return end
+    if not gui.elements.main_tree:push(plugin_label .. "  v1.5  by Magoogle") then return end
 
     gui.elements.main_toggle:render("Enable", "Start / stop the boss farmer")
 
     -- ---- Bosses ----
     if gui.elements.boss_tree:push("Bosses to Farm") then
-        for _, bd in ipairs(enums.boss_zones) do
-            local tier = bd.key_tier or "lair"
-            local tier_label = ({
-                lair    = "Lair Key",
-                greater = "Greater Lair Key",
-                husk    = "Betrayer's Husks",
-            })[tier] or tier
-            local hint
-            if tier == "husk" then
-                hint = "Consumes Betrayer's Husks each run."
-            else
-                hint = "Consumes one " .. tier_label .. " per run."
+        gui.elements.boss_rotation_mode:render("Rotation Mode", SEL_MODES,
+            "Manual = farm one specific boss only.  Round Robin = cycle through the ticked bosses, one run each.  Random = pick a random ticked boss each run.")
+
+        local mode = gui.elements.boss_rotation_mode:get()
+        if mode == 0 then
+            -- Manual: dropdown of every defined boss
+            gui.elements.boss_target:render("Target Boss", boss_zone_labels,
+                "The single boss the script will farm. Uses that boss's required key tier.")
+        else
+            -- Round Robin / Random: per-boss checkboxes
+            for _, bd in ipairs(enums.boss_zones) do
+                local tier = bd.key_tier or "lair"
+                local tier_label = ({
+                    lair    = "Lair Key",
+                    greater = "Greater Lair Key",
+                    husk    = "Betrayer's Husks",
+                })[tier] or tier
+                local hint
+                if tier == "husk" then
+                    hint = "Consumes Betrayer's Husks each run."
+                else
+                    hint = "Consumes one " .. tier_label .. " per run."
+                end
+                local label = string.format("%s  [%s]", bd.label, tier_label)
+                gui.elements.boss_enabled[bd.id]:render(label, hint)
             end
-            local label = string.format("%s  [%s]", bd.label, tier_label)
-            gui.elements.boss_enabled[bd.id]:render(label, hint)
         end
         gui.elements.boss_tree:pop()
     end

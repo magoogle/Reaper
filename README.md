@@ -1,4 +1,4 @@
-# Reaper v1.4
+# Reaper v1.5
 
 Farms a user-selected set of bosses using **Lair Keys** / **Greater Lair Keys** (shared pool for all non-Belial bosses) and **Betrayer's Husks** (Belial). Each successful chest open consumes one item from the appropriate pool. When every selected boss is out of resources the script returns to town and disables itself.
 
@@ -12,7 +12,10 @@ Farms a user-selected set of bosses using **Lair Keys** / **Greater Lair Keys** 
 
 1. Drop the `Reaper` folder into your scripts directory.
 2. Open the in-game menu → **Reaper**.
-3. Under **Bosses to Farm**, tick the bosses you want to run.
+3. Under **Bosses to Farm**, pick a **Rotation Mode**:
+   - **Manual** — farm one specific boss (pick from the dropdown).
+   - **Round Robin** — cycle through ticked bosses, one run each.
+   - **Random** — pick a random ticked boss for every run.
 4. Under **Settings**, pick your home town and toggle Alfred / Batmobile as desired.
 5. Make sure your combat script is running.
 6. Click **Enable**.

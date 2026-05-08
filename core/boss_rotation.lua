@@ -12,6 +12,11 @@
 --  Tiers are tracked separately — running Duriel does not consume
 --  a Greater Lair Key, and vice versa. A boss is "done" when its
 --  required tier is empty.
+--
+--  Three rotation modes (settings.boss_rotation_mode):
+--    "manual"     → farm only settings.boss_target, ignore checkboxes
+--    "roundrobin" → cycle through ticked bosses one run each (default)
+--    "random"     → pick a random ticked boss with stock for each run
 -- ============================================================
 
 local enums     = require "data.enums"
@@ -43,13 +48,6 @@ local HUSK_COST = materials.HUSK_COST_BELIAL
 -- -------------------------------------------------------
 -- Helpers
 -- -------------------------------------------------------
-local function tier_for_boss_id(boss_id)
-    for _, bd in ipairs(enums.boss_zones) do
-        if bd.id == boss_id then return bd.key_tier or "lair" end
-    end
-    return "lair"
-end
-
 local function pool_runs_for(boss)
     local tier = boss.key_tier or "lair"
     if tier == "husk" then
@@ -71,9 +69,14 @@ local function any_runs_available()
     return false
 end
 
--- Move current_idx to the next boss in the cycle that still has resources.
--- Returns true if a runnable boss was found, false if everyone is empty.
-local function advance_to_runnable(start_after)
+-- Cached rotation mode. Updated by rotation.build (and resync_pools when
+-- the settings module is reachable). Defaults to roundrobin so behaviour
+-- is sane if build() is never called explicitly.
+rotation.mode = "roundrobin"
+
+-- Round-robin: advance current_idx to the next boss in the cycle that
+-- still has resources.
+local function advance_roundrobin(start_after)
     local n = #rotation.boss_list
     if n == 0 then return false end
     local base = start_after or rotation.current_idx
@@ -85,6 +88,38 @@ local function advance_to_runnable(start_after)
         end
     end
     return false
+end
+
+-- Random: pick a random boss from the runnable subset.
+local function advance_random()
+    local candidates = {}
+    for i, boss in ipairs(rotation.boss_list) do
+        if pool_runs_for(boss) > 0 then
+            candidates[#candidates + 1] = i
+        end
+    end
+    if #candidates == 0 then return false end
+    rotation.current_idx = candidates[math.random(#candidates)]
+    return true
+end
+
+-- Manual: stay on the only boss in the list while it has resources;
+-- otherwise we're done. boss_list is built with a single entry in this
+-- mode, so this is essentially "is there still stock?".
+local function advance_manual()
+    local cur = rotation.boss_list[rotation.current_idx]
+    if cur and pool_runs_for(cur) > 0 then return true end
+    return false
+end
+
+-- Dispatch helper. start_after only meaningful for round-robin.
+local function advance_to_runnable(start_after)
+    if rotation.mode == "random" then
+        return advance_random()
+    elseif rotation.mode == "manual" then
+        return advance_manual()
+    end
+    return advance_roundrobin(start_after)
 end
 
 local function load_pools_from_inventory()
@@ -105,33 +140,56 @@ function rotation.build(settings)
 
     rotation.boss_list   = {}
     rotation.current_idx = 1
+    rotation.mode        = (settings and settings.boss_rotation_mode) or "roundrobin"
 
     load_pools_from_inventory()
 
-    console.print("[Reaper] Building rotation...")
+    console.print(string.format(
+        "[Reaper] Building rotation (mode=%s)...", rotation.mode))
     console.print(string.format(
         "  pools: lair=%d  greater=%d  husks=%d  (Belial cost=%d)",
         rotation.pools.lair, rotation.pools.greater, rotation.pools.husk, HUSK_COST))
 
-    if not settings or not settings.boss_enabled then
-        console.print("[Reaper] No boss selection in settings — nothing to farm.")
+    if not settings then
+        console.print("[Reaper] No settings — nothing to farm.")
         rotation.initialized = false
         return
     end
 
-    for _, bd in ipairs(enums.boss_zones) do
-        if settings.boss_enabled[bd.id] then
-            local tier = bd.key_tier or "lair"
-            local entry = {
-                id             = bd.id,
-                zone_prefix    = bd.zone_prefix,
-                label          = bd.label,
-                key_tier       = tier,
-                run_type       = tier,   -- aliased so logs / external API stay readable
-                runs_remaining = 0,
-            }
-            table.insert(rotation.boss_list, entry)
-            console.print(string.format("  [%s] %s", tier, bd.label))
+    local function add_entry(bd)
+        local tier = bd.key_tier or "lair"
+        table.insert(rotation.boss_list, {
+            id             = bd.id,
+            zone_prefix    = bd.zone_prefix,
+            label          = bd.label,
+            key_tier       = tier,
+            run_type       = tier,   -- aliased so logs / external API stay readable
+            runs_remaining = 0,
+        })
+        console.print(string.format("  [%s] %s", tier, bd.label))
+    end
+
+    if rotation.mode == "manual" then
+        local target_id = settings.boss_target
+        local boss_def
+        for _, bd in ipairs(enums.boss_zones) do
+            if bd.id == target_id then boss_def = bd; break end
+        end
+        if not boss_def then
+            console.print(string.format(
+                "[Reaper] Manual mode: target boss '%s' not found.", tostring(target_id)))
+            rotation.initialized = false
+            return
+        end
+        add_entry(boss_def)
+    else
+        if not settings.boss_enabled then
+            console.print("[Reaper] No boss selection in settings — nothing to farm.")
+            rotation.initialized = false
+            return
+        end
+        for _, bd in ipairs(enums.boss_zones) do
+            if settings.boss_enabled[bd.id] then add_entry(bd) end
         end
     end
 
@@ -145,11 +203,19 @@ function rotation.build(settings)
 
     -- Position the cursor on the first runnable boss (skip ones that have no
     -- resources from the start, e.g. Belial selected with zero husks).
-    local has_any = advance_to_runnable(0)
+    local has_any
+    if rotation.mode == "random" then
+        has_any = advance_random()
+    elseif rotation.mode == "manual" then
+        has_any = advance_manual()
+    else
+        has_any = advance_roundrobin(0)
+    end
     rotation.initialized = has_any
 
     if rotation.initialized then
-        console.print(string.format("[Reaper] Rotation: %d boss(es) queued", #rotation.boss_list))
+        console.print(string.format("[Reaper] Rotation: %d boss(es) queued [%s]",
+            #rotation.boss_list, rotation.mode))
         local first = rotation.boss_list[rotation.current_idx]
         console.print(string.format("[Reaper] Starting with: %s (%s, %d runs available)",
             first.label, first.key_tier, first.runs_remaining))

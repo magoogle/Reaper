@@ -17,10 +17,16 @@ local settings = {
     town_zone     = gui.town_data[0].zone_name,
     town_waypoint = gui.town_data[0].waypoint_sno,
 
-    -- Per-boss enable map. Populated from gui.elements.boss_enabled in
-    -- update_settings(). Bosses default to false so a fresh install farms
-    -- nothing until the user explicitly opts in.
-    boss_enabled  = {},
+    -- Boss rotation:
+    --   boss_rotation_mode  = "manual" | "roundrobin" | "random"
+    --   boss_target         = boss_id used when rotation_mode == "manual"
+    --   boss_enabled        = per-boss toggles used by roundrobin / random
+    -- Defaults to roundrobin so a fresh install with multiple ticked bosses
+    -- cycles through them. Boss list defaults to all-off so nothing farms
+    -- until the user explicitly opts in.
+    boss_rotation_mode = "roundrobin",
+    boss_target        = "duriel",
+    boss_enabled       = {},
 
     dungeon_reset_enabled  = false,
     dungeon_reset_interval = 10,
@@ -51,6 +57,16 @@ function settings:update_settings()
     local town_data       = gui.town_data[town_idx] or gui.town_data[0]
     settings.town_zone    = town_data.zone_name
     settings.town_waypoint = town_data.waypoint_sno
+
+    local rotation_modes = { "manual", "roundrobin", "random" }
+    settings.boss_rotation_mode =
+        rotation_modes[gui.elements.boss_rotation_mode:get() + 1] or "roundrobin"
+
+    local boss_ids = {}
+    for _, bd in ipairs(enums.boss_zones) do
+        boss_ids[#boss_ids + 1] = bd.id
+    end
+    settings.boss_target = boss_ids[gui.elements.boss_target:get() + 1] or "duriel"
 
     for _, bd in ipairs(enums.boss_zones) do
         local cb = gui.elements.boss_enabled[bd.id]
