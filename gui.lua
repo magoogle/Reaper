@@ -117,7 +117,7 @@ end
 
 -- -------------------------------------------------------
 function gui.render()
-    if not gui.elements.main_tree:push(plugin_label .. "  v1.6  by Magoogle") then return end
+    if not gui.elements.main_tree:push(plugin_label .. "  v1.7  by Magoogle") then return end
 
     gui.elements.main_toggle:render("Enable", "Start / stop the boss farmer")
 

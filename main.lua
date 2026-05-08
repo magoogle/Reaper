@@ -1,5 +1,5 @@
 -- ============================================================
---  Reaper  v1.6
+--  Reaper  v1.7
 --  by Magoogle
 --
 --  Flow per run:
@@ -43,6 +43,20 @@ local function on_enable()
     console.print("=============================================")
 
     settings:update_settings()
+
+    -- Orchestrator-driven path (e.g. WarPigs / WarMachine via
+    -- ReaperPlugin.run_boss). The external caller already populated
+    -- rotation.boss_list and set rotation.external + rotation.initialized,
+    -- so the per-boss GUI selection is irrelevant. We skip the
+    -- ticked-boxes validation in that case — otherwise the orchestrator's
+    -- request gets silently undone here when no menu boxes are ticked.
+    if rotation.external then
+        console.print(string.format(
+            "[Reaper] External rotation active — boss=%s. Skipping menu validation.",
+            (rotation.current() and rotation.current().label) or "?"))
+        materials.print_summary()
+        return rotation.initialized
+    end
 
     -- List which bosses the user has enabled
     local selected = {}
@@ -272,6 +286,6 @@ ReaperPlugin = {
 }
 
 console.print("=============================================")
-console.print("  Reaper  v1.6  by Magoogle  - Loaded")
+console.print("  Reaper  v1.7  by Magoogle  - Loaded")
 console.print("  Enable in menu to start reaping")
 console.print("=============================================")

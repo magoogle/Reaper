@@ -350,9 +350,15 @@ function rotation.set_external(boss_id, run_type)
         return false
     end
 
-    -- Resolve run_type: explicit value wins; otherwise use the boss's enum tier.
+    -- Resolve run_type to a current-system tier. Accepts:
+    --   nil / "lair_key" / "material" / "sigil"  → resolve from enum (legacy
+    --                                              orchestrators don't know
+    --                                              about the new tiers)
+    --   "lair" / "greater" / "husk"              → explicit override
     local tier = run_type
-    if tier == nil or tier == "lair_key" then tier = boss_def.key_tier or "lair" end
+    if tier == nil or tier == "lair_key" or tier == "material" or tier == "sigil" then
+        tier = boss_def.key_tier or "lair"
+    end
 
     rotation.boss_list = { {
         id             = boss_def.id,
