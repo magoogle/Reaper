@@ -121,15 +121,7 @@ function task.shouldExecute()
     if not boss then return false end
 
     local zone = utils.get_zone()
-    local in_zone
-    if boss.run_type == "sigil" then
-        in_zone = zone:find("BloodyLair") ~= nil
-            or zone:find("S12_Boss")      ~= nil
-            or zone:find("Boss_WT")       ~= nil
-            or zone:find("Boss_Kehj")     ~= nil
-    else
-        in_zone = zone:match(boss.zone_prefix) ~= nil
-    end
+    local in_zone = zone:match(boss.zone_prefix) ~= nil
     if not in_zone then return false end
 
     -- Boss chest already visible — boss is already dead, skip

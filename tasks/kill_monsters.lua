@@ -17,12 +17,6 @@ local function in_target_boss_zone()
     local boss = rotation.current()
     if not boss then return false end
     local zone = utils.get_zone()
-    if boss.run_type == "sigil" then
-        return zone:find("BloodyLair") ~= nil
-            or zone:find("S12_Boss")   ~= nil
-            or zone:find("Boss_WT")    ~= nil
-            or zone:find("Boss_Kehj")  ~= nil
-    end
     return zone:match(boss.zone_prefix) ~= nil
 end
 

@@ -17,9 +17,10 @@ local function cbo(default_idx, key)
 end
 
 local TREE_MAIN   = 0
-local TREE_RESET  = 1
-local TREE_BELIAL = 2
-local TREE_MISC   = 3
+local TREE_BOSSES = 1
+local TREE_RESET  = 2
+local TREE_BELIAL = 3
+local TREE_MISC   = 4
 
 local chest_boss_labels = {}
 for _, bd in ipairs(enums.belial_chest_bosses) do
@@ -51,6 +52,7 @@ gui.elements = {
     main_tree   = tree_node:new(TREE_MAIN),
     main_toggle = cb(false, "main_toggle"),
 
+    boss_tree   = tree_node:new(TREE_BOSSES),
     reset_tree  = tree_node:new(TREE_RESET),
     belial_tree = tree_node:new(TREE_BELIAL),
     misc_tree   = tree_node:new(TREE_MISC),
@@ -64,9 +66,8 @@ gui.elements = {
     -- Default 0 = Temis (matches ArkhamAsylum's default).
     town          = cbo(0,    "town"),
 
-    -- Run type toggles
-    run_materials = cb(true,  "run_mats"),
-    run_sigils    = cb(true,  "run_sigils"),
+    -- Per-boss farm toggles (populated below from enums.boss_zones)
+    boss_enabled  = {},
 
     belial_chest_enabled = cb(false, "bel_en"),
     belial_sel_mode      = cbo(0,    "bel_mode"),
@@ -75,15 +76,41 @@ gui.elements = {
     belial_pool          = {},
 }
 
+for _, bd in ipairs(enums.boss_zones) do
+    gui.elements.boss_enabled[bd.id] = cb(false, "boss_" .. bd.id)
+end
+
 for _, bd in ipairs(enums.belial_chest_bosses) do
     gui.elements.belial_pool[bd.id] = cb(false, "bpool_" .. bd.id)
 end
 
 -- -------------------------------------------------------
 function gui.render()
-    if not gui.elements.main_tree:push(plugin_label .. "  v1.1  by Magoogle") then return end
+    if not gui.elements.main_tree:push(plugin_label .. "  v1.2  by Magoogle") then return end
 
     gui.elements.main_toggle:render("Enable", "Start / stop the boss farmer")
+
+    -- ---- Bosses ----
+    if gui.elements.boss_tree:push("Bosses to Farm") then
+        for _, bd in ipairs(enums.boss_zones) do
+            local tier = bd.key_tier or "lair"
+            local tier_label = ({
+                initiate = "Initiate Lair Key",
+                lair     = "Lair Key",
+                greater  = "Greater Lair Key",
+                husk     = "Betrayer's Husks",
+            })[tier] or tier
+            local hint
+            if tier == "husk" then
+                hint = "Consumes Betrayer's Husks each run."
+            else
+                hint = "Consumes one " .. tier_label .. " per run."
+            end
+            local label = string.format("%s  [%s]", bd.label, tier_label)
+            gui.elements.boss_enabled[bd.id]:render(label, hint)
+        end
+        gui.elements.boss_tree:pop()
+    end
 
     -- ---- Dungeon Reset ----
     if gui.elements.reset_tree:push("Dungeon Reset") then
@@ -120,11 +147,6 @@ function gui.render()
             "Hand off inventory/repair/restock tasks to Alfred.")
         gui.elements.use_batmobile:render("Use Batmobile Navigation",
             "Use BatmobilePlugin autonomous navigation instead of pre-recorded path files.")
-
-        gui.elements.run_materials:render("Run Material Runs",
-            "Farm bosses using consumable summoning materials (Shards of Agony, Living Steel, etc.)")
-        gui.elements.run_sigils:render("Run Lair Boss Sigils",
-            "Farm bosses using Bloodied and Bloodsoaked Lair Boss Sigils from your dungeon key inventory.")
 
         gui.elements.misc_tree:pop()
     end

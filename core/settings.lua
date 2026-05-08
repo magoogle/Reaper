@@ -3,6 +3,8 @@
 -- ============================================================
 
 local gui      = require "gui"
+local enums    = require "data.enums"
+
 local settings = {
     enabled       = false,
     use_alfred    = true,
@@ -15,9 +17,10 @@ local settings = {
     town_zone     = gui.town_data[0].zone_name,
     town_waypoint = gui.town_data[0].waypoint_sno,
 
-    -- Run type toggles
-    run_materials = true,   -- consumable material runs
-    run_sigils    = true,   -- Bloodied + Bloodsoaked Lair Boss Sigil runs
+    -- Per-boss enable map. Populated from gui.elements.boss_enabled in
+    -- update_settings(). Bosses default to false so a fresh install farms
+    -- nothing until the user explicitly opts in.
+    boss_enabled  = {},
 
     dungeon_reset_enabled  = false,
     dungeon_reset_interval = 10,
@@ -33,6 +36,12 @@ local settings = {
     _belial_current_target = nil,
 }
 
+-- Initialise boss_enabled with every defined boss so callers can iterate
+-- safely on the first frame even before the GUI pulse runs.
+for _, bd in ipairs(enums.boss_zones) do
+    settings.boss_enabled[bd.id] = false
+end
+
 function settings:update_settings()
     settings.enabled       = gui.elements.main_toggle:get()
     settings.use_alfred    = gui.elements.use_alfred:get()
@@ -43,15 +52,16 @@ function settings:update_settings()
     settings.town_zone    = town_data.zone_name
     settings.town_waypoint = town_data.waypoint_sno
 
-    settings.run_materials = gui.elements.run_materials:get()
-    settings.run_sigils    = gui.elements.run_sigils:get()
+    for _, bd in ipairs(enums.boss_zones) do
+        local cb = gui.elements.boss_enabled[bd.id]
+        settings.boss_enabled[bd.id] = cb and cb:get() or false
+    end
 
     settings.dungeon_reset_enabled  = gui.elements.dungeon_reset_enabled:get()
     settings.dungeon_reset_interval = gui.elements.dungeon_reset_interval:get()
 
     settings.belial_chest_enabled = gui.elements.belial_chest_enabled:get()
 
-    local enums = require "data.enums"
     local modes = { "manual", "roundrobin", "random" }
     settings.belial_chest.selection_mode = modes[gui.elements.belial_sel_mode:get() + 1] or "manual"
 

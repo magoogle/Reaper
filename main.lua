@@ -1,15 +1,16 @@
 -- ============================================================
---  Reaper  v1.1
+--  Reaper  v1.2
 --  by Magoogle
 --
 --  Flow per run:
 --    1. Teleport directly to boss dungeon
 --    2. Navigate to altar and interact to summon the boss
+--       (consumes Lair Key / Greater Lair Key, or Husks for Belial)
 --    3. Kill the boss (your combat script handles casting)
 --    4. Open the boss chest
---    5. Decrement run count by 1
---    6. When run count hits 0, move to the next boss
---    7. When all bosses are done, disable
+--    5. Decrement key/husk pool by 1 run
+--    6. Cycle to the next selected boss
+--    7. When no selected boss has resources, disable
 -- ============================================================
 
 local gui          = require "gui"
@@ -42,33 +43,25 @@ local function on_enable()
 
     settings:update_settings()
 
-    -- Debug: log what settings and inventory look like
-    console.print(string.format("[Reaper] run_materials=%s  run_sigils=%s",
-        tostring(settings.run_materials), tostring(settings.run_sigils)))
-
-    if settings.run_sigils then
-        local ok, keys = pcall(function() return lp:get_dungeon_key_items() end)
-        if ok and type(keys) == "table" then
-            console.print(string.format("[Reaper] dungeon_key_items: %d items", #keys))
-        else
-            console.print("[Reaper] dungeon_key_items: unavailable")
-        end
+    -- List which bosses the user has enabled
+    local selected = {}
+    for _, bd in ipairs(enums.boss_zones) do
+        if settings.boss_enabled[bd.id] then selected[#selected + 1] = bd.label end
     end
-
-    if settings.run_materials then
-        local ok, cons = pcall(function() return lp:get_consumable_items() end)
-        if ok and type(cons) == "table" then
-            console.print(string.format("[Reaper] consumable_items: %d items", #cons))
-        else
-            console.print("[Reaper] consumable_items: unavailable")
-        end
-        materials.print_all_consumables()
+    if #selected == 0 then
+        console.print("[Reaper] No bosses selected — open menu and tick the bosses you want to farm.")
+        return false
     end
+    console.print("[Reaper] Selected: " .. table.concat(selected, ", "))
+
+    -- Dump inventory so the user can verify SNO IDs in core/materials.lua
+    materials.print_all_keys()
+    materials.print_summary()
 
     rotation.build(settings)
 
     if not rotation.initialized then
-        console.print("[Reaper] No materials or sigils in inventory. Stopping.")
+        console.print("[Reaper] No keys / husks available for the selected bosses. Stopping.")
         return false
     end
 
@@ -90,7 +83,7 @@ end
 local enabled_last_frame = false
 local enable_time        = 0
 local startup_done       = false  -- true once on_enable has been attempted
-local finishing          = false  -- true while teleporting to Cerrigar before shutdown
+local finishing          = false  -- true while teleporting to town before shutdown
 local finish_tp_time     = 0
 
 on_update(function()
@@ -169,7 +162,7 @@ on_render(function()
 
     local current_task = task_manager.get_current_task()
     local boss         = rotation.current()
-    local mat_counts   = materials.scan()
+    local pool         = rotation.pool_summary()
 
     -- Centered task label above the character (same style as ArkhamAsylum)
     if current_task then
@@ -184,8 +177,8 @@ on_render(function()
 
     if boss then
         graphics.text_2d(
-            string.format("Farming: %s  [%s]  (%d runs left)",
-                boss.label, boss.run_type, boss.runs_remaining),
+            string.format("Farming: %s  [%s]",
+                boss.label, boss.run_type),
             vec2:new(x, y), 13, color_white(255))
         y = y + 16
     end
@@ -196,13 +189,17 @@ on_render(function()
     graphics.text_2d("Total kills: " .. tracker.total_kills, vec2:new(x, y), 12, color_green(255))
     y = y + 20
 
-    graphics.text_2d("── Materials ──", vec2:new(x, y), 12, color_white(180))
+    graphics.text_2d("── Key Pools ──", vec2:new(x, y), 12, color_white(180))
     y = y + 14
-    for _, bd in ipairs(enums.boss_zones) do
-        local runs = mat_counts[bd.id] or 0
-        local col  = runs > 0 and color_white(220) or color_red(180)
-        graphics.text_2d(
-            string.format("%-22s %d", bd.label, runs),
+    local rows = {
+        { "Initiate Lair Keys", pool.initiate    },
+        { "Lair Keys         ", pool.lair        },
+        { "Greater Lair Keys ", pool.greater     },
+        { "Belial (Husks)    ", pool.belial_runs },
+    }
+    for _, r in ipairs(rows) do
+        local col = r[2] > 0 and color_white(220) or color_red(180)
+        graphics.text_2d(string.format("%s  %d runs", r[1], r[2]),
             vec2:new(x, y), 12, col)
         y = y + 13
     end
@@ -217,8 +214,9 @@ ReaperPlugin = {
 
     -- Externally request a single-boss run. boss_id must match an entry in
     -- enums.boss_zones (e.g. "duriel", "andariel", "varshan"). run_type is
-    -- "material" (default) or "sigil". Resets prior task state and enables
-    -- the plugin. Returns true on success, false if boss_id is unknown.
+    -- "lair_key" (default for non-Belial bosses) or "husk" (Belial). Resets
+    -- prior task state and enables the plugin. Returns true on success,
+    -- false if boss_id is unknown.
     run_boss = function(boss_id, run_type)
         if not rotation.set_external(boss_id, run_type) then
             return false
@@ -244,6 +242,6 @@ ReaperPlugin = {
 }
 
 console.print("=============================================")
-console.print("  Reaper  v1.1  by Magoogle  - Loaded")
+console.print("  Reaper  v1.2  by Magoogle  - Loaded")
 console.print("  Enable in menu to start reaping")
 console.print("=============================================")
