@@ -16,11 +16,12 @@ local function cbo(default_idx, key)
     return combo_box:new(default_idx, get_hash(plugin_label .. "_" .. key))
 end
 
-local TREE_MAIN   = 0
-local TREE_BOSSES = 1
-local TREE_RESET  = 2
-local TREE_BELIAL = 3
-local TREE_MISC   = 4
+local TREE_MAIN          = 0
+local TREE_BOSSES        = 1
+local TREE_RESET         = 2
+local TREE_BELIAL        = 3
+local TREE_BELIAL_ALIGN  = 4
+local TREE_MISC          = 5
 
 local chest_boss_labels = {}
 for _, bd in ipairs(enums.belial_chest_bosses) do
@@ -82,6 +83,28 @@ gui.elements = {
     belial_target_boss   = cbo(0,    "bel_target"),
     belial_party_delay   = si(0, 5000, 0, "bel_delay"),
     belial_pool          = {},
+
+    -- Belial chest dialog calibration. Sliders store **pixel coordinates at
+    -- a 1920x1080 reference resolution**; tasks/belial_chest.lua applies
+    -- center-aware scaling at click time so 21:9 / 32:9 displays don't drift.
+    belial_align_tree   = tree_node:new(TREE_BELIAL_ALIGN),
+    belial_show_xhairs  = cb(false, "bel_xhairs"),
+    -- Boss list column (X) and the seven row Y positions
+    belial_slot_x       = si(0, 5120, 349, "bel_slot_x"),
+    belial_slot_y_1     = si(0, 2160, 397, "bel_slot_y1"),
+    belial_slot_y_2     = si(0, 2160, 495, "bel_slot_y2"),
+    belial_slot_y_3     = si(0, 2160, 585, "bel_slot_y3"),
+    belial_slot_y_4     = si(0, 2160, 683, "bel_slot_y4"),
+    belial_slot_y_5     = si(0, 2160, 773, "bel_slot_y5"),
+    belial_slot_y_6     = si(0, 2160, 875, "bel_slot_y6"),
+    belial_slot_y_7     = si(0, 2160, 971, "bel_slot_y7"),
+    -- Static dialog buttons
+    belial_modify_x     = si(0, 5120, 349, "bel_mod_x"),
+    belial_modify_y     = si(0, 2160, 816, "bel_mod_y"),
+    belial_scroll_x     = si(0, 5120, 629, "bel_scr_x"),
+    belial_scroll_y     = si(0, 2160, 858, "bel_scr_y"),
+    belial_open_x       = si(0, 5120, 349, "bel_open_x"),
+    belial_open_y       = si(0, 2160, 956, "bel_open_y"),
 }
 
 for _, bd in ipairs(enums.boss_zones) do
@@ -94,7 +117,7 @@ end
 
 -- -------------------------------------------------------
 function gui.render()
-    if not gui.elements.main_tree:push(plugin_label .. "  v1.5  by Magoogle") then return end
+    if not gui.elements.main_tree:push(plugin_label .. "  v1.6  by Magoogle") then return end
 
     gui.elements.main_toggle:render("Enable", "Start / stop the boss farmer")
 
@@ -153,6 +176,32 @@ function gui.render()
                 end
             end
             gui.elements.belial_party_delay:render("Party Delay (ms)", "Extra ms before clicking Open")
+
+            -- ---- Alignment (sub-tree) ----
+            if gui.elements.belial_align_tree:push("Chest Dialog Alignment") then
+                gui.elements.belial_show_xhairs:render("Show crosshairs on screen",
+                    "Render coloured crosshairs at every stored click position so you can eyeball them against the live Ritual of Lies dialog.")
+
+                gui.elements.belial_slot_x:render("Slot X (column)",
+                    "Boss-list column position, in pixels at a 1920x1080 reference. Auto-scaled (center-aware) on other resolutions.")
+
+                gui.elements.belial_slot_y_1:render("Slot Y1 (row 1)", "")
+                gui.elements.belial_slot_y_2:render("Slot Y2 (row 2)", "")
+                gui.elements.belial_slot_y_3:render("Slot Y3 (row 3)", "")
+                gui.elements.belial_slot_y_4:render("Slot Y4 (row 4)", "")
+                gui.elements.belial_slot_y_5:render("Slot Y5 (row 5)", "")
+                gui.elements.belial_slot_y_6:render("Slot Y6 (row 6)", "")
+                gui.elements.belial_slot_y_7:render("Slot Y7 (row 7)", "")
+
+                gui.elements.belial_modify_x:render("Modify Reward X", "")
+                gui.elements.belial_modify_y:render("Modify Reward Y", "")
+                gui.elements.belial_scroll_x:render("Scroll X", "")
+                gui.elements.belial_scroll_y:render("Scroll Y", "")
+                gui.elements.belial_open_x:render("Open X", "")
+                gui.elements.belial_open_y:render("Open Y", "")
+
+                gui.elements.belial_align_tree:pop()
+            end
         end
         gui.elements.belial_tree:pop()
     end

@@ -1,4 +1,4 @@
-# Reaper v1.5
+# Reaper v1.6
 
 Farms a user-selected set of bosses using **Lair Keys** / **Greater Lair Keys** (shared pool for all non-Belial bosses) and **Betrayer's Husks** (Belial). Each successful chest open consumes one item from the appropriate pool. When every selected boss is out of resources the script returns to town and disables itself.
 
@@ -42,7 +42,7 @@ Each boss's required key is set by its `key_tier` field in `data/enums.lua`. Edi
 Reaper writes a teleport command to `command.txt` and waits for D4Assistant to move you to the boss zone. No calibration needed.
 
 ### Built-in Map Navigation (D4Assistant disabled)
-Reaper navigates to the boss using the in-game waypoint map. Calibrate click positions under **Boss Icon Alignment** before use.
+Reaper teleports directly to the boss dungeon via `teleport_to_boss_dungeon(sno)` and falls back to walking the recorded path file (or to Batmobile, see below). No calibration needed.
 
 ### Batmobile Fallback
 Whether or not the **Use Batmobile Navigation** toggle is on, BatmobilePlugin is automatically engaged as a fallback whenever a boss has no path file or a path-file walk completes without the altar in sight. Toggle the setting on to use Batmobile as the primary navigation everywhere.
@@ -58,6 +58,19 @@ After Belial dies a "Ritual of Lies – Choose Reward" chest UI appears. This se
 | **Target Boss** *(Manual)* | Fixed boss to always select |
 | **Boss Pool** *(RR / Random)* | Which bosses to include in the pool |
 | **Party Delay** | Extra ms before clicking Open (helps sync with party members) |
+
+### Chest Dialog Alignment
+
+The "Choose Reward" dialog can't be inspected through any plugin API — Reaper interacts with it by injecting mouse clicks at known positions. Coordinates are stored as **pixels at a 1920x1080 reference resolution** and converted at click time using **center-aware scaling** (`screen_w/2 + (ref_x − 960) × screen_h/1080`), so 21:9 / 32:9 ultrawide displays don't drift. Tune the positions under **Belial Chest Automation → Chest Dialog Alignment**:
+
+1. Tick **Show crosshairs on screen**. Coloured `+` marks appear at every stored position even when the farmer is disabled.
+2. Kill Belial (or trigger the dialog any way you like) so the Ritual of Lies UI is on screen.
+3. Adjust the `Slot Y1`–`Slot Y7` sliders so the white crosshairs land on each boss row in the list.
+4. Adjust **Slot X (column)** so the crosshairs sit on the boss button, not next to it.
+5. Adjust **Modify Reward**, **Scroll**, and **Open** X/Y so each coloured crosshair sits on the matching button.
+6. Untick **Show crosshairs** when done.
+
+Defaults match the values that were hard-coded in earlier versions; you only need to recalibrate if a game patch reshuffles the dialog layout, or if you run an unusual aspect ratio where the `screen_h/1080` scaling alone is insufficient.
 
 ## Dungeon Reset
 

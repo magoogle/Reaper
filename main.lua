@@ -1,5 +1,5 @@
 -- ============================================================
---  Reaper  v1.5
+--  Reaper  v1.6
 --  by Magoogle
 --
 --  Flow per run:
@@ -20,6 +20,7 @@ local rotation     = require "core.boss_rotation"
 local tracker      = require "core.tracker"
 local enums        = require "data.enums"
 local materials    = require "core.materials"
+local belial_chest = require "tasks.belial_chest"
 
 -- Home town now resolved per pulse from settings.town_zone / settings.town_waypoint
 -- (driven by the gui.town combo_box). Defaults to Temis to match Arkham/Alfred.
@@ -204,6 +205,36 @@ on_render(function()
     end
 end)
 
+-- -------------------------------------------------------
+-- Belial chest calibration overlay
+-- Drawn whenever the user has the show-crosshairs toggle on, regardless
+-- of whether the farmer is enabled, so they can tune positions in front
+-- of the live Ritual of Lies dialog without arming the bot.
+-- -------------------------------------------------------
+on_render(function()
+    local cfg = settings.belial_chest
+    if not cfg or not cfg.show_crosshairs then return end
+
+    local pts = belial_chest.get_ref_points and belial_chest.get_ref_points(cfg)
+    if not pts then return end
+
+    local color_for = {
+        yellow = color_yellow,
+        orange = color_orange,
+        green  = color_green,
+        white  = color_white,
+        red    = color_red,
+        cyan   = color_orange,  -- no native cyan; closest is orange
+    }
+
+    for _, p in ipairs(pts) do
+        local sx, sy = belial_chest.resolve_ref_to_screen(p.x, p.y)
+        local cf = color_for[p.color] or color_white
+        graphics.text_2d("+",      vec2:new(sx - 4, sy - 9), 22, cf(255))
+        graphics.text_2d(p.label, vec2:new(sx + 10, sy - 7), 12, cf(200))
+    end
+end)
+
 on_render_menu(gui.render)
 
 -- External plugin API
@@ -241,6 +272,6 @@ ReaperPlugin = {
 }
 
 console.print("=============================================")
-console.print("  Reaper  v1.5  by Magoogle  - Loaded")
+console.print("  Reaper  v1.6  by Magoogle  - Loaded")
 console.print("  Enable in menu to start reaping")
 console.print("=============================================")

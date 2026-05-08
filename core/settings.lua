@@ -37,6 +37,15 @@ local settings = {
         target_boss    = "duriel",
         pool           = {},
         party_delay    = 0,
+
+        -- Pixel coordinates at a 1920x1080 reference. Mirrors gui.elements.*.
+        -- Defaults match the previously hard-coded values.
+        show_crosshairs = false,
+        slot_x = 349,
+        slot_y = { 397, 495, 585, 683, 773, 875, 971 },
+        modify = { x = 349, y = 816 },
+        scroll = { x = 629, y = 858 },
+        open   = { x = 349, y = 956 },
     },
 
     _belial_current_target = nil,
@@ -95,6 +104,30 @@ function settings:update_settings()
     end
     settings.belial_chest.pool        = pool
     settings.belial_chest.party_delay = gui.elements.belial_party_delay:get()
+
+    settings.belial_chest.show_crosshairs = gui.elements.belial_show_xhairs:get()
+    settings.belial_chest.slot_x          = gui.elements.belial_slot_x:get()
+    settings.belial_chest.slot_y = {
+        gui.elements.belial_slot_y_1:get(),
+        gui.elements.belial_slot_y_2:get(),
+        gui.elements.belial_slot_y_3:get(),
+        gui.elements.belial_slot_y_4:get(),
+        gui.elements.belial_slot_y_5:get(),
+        gui.elements.belial_slot_y_6:get(),
+        gui.elements.belial_slot_y_7:get(),
+    }
+    settings.belial_chest.modify = {
+        x = gui.elements.belial_modify_x:get(),
+        y = gui.elements.belial_modify_y:get(),
+    }
+    settings.belial_chest.scroll = {
+        x = gui.elements.belial_scroll_x:get(),
+        y = gui.elements.belial_scroll_y:get(),
+    }
+    settings.belial_chest.open = {
+        x = gui.elements.belial_open_x:get(),
+        y = gui.elements.belial_open_y:get(),
+    }
 end
 
 return settings
