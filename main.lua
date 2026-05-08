@@ -51,9 +51,11 @@ local function on_enable()
     -- ticked-boxes validation in that case — otherwise the orchestrator's
     -- request gets silently undone here when no menu boxes are ticked.
     if rotation.external then
+        local cur = rotation.current()
         console.print(string.format(
-            "[Reaper] External rotation active — boss=%s. Skipping menu validation.",
-            (rotation.current() and rotation.current().label) or "?"))
+            "[Reaper] External rotation: %s [%s] — skipping menu validation.",
+            (cur and cur.label)    or "?",
+            (cur and cur.run_type) or "?"))
         materials.print_summary()
         return rotation.initialized
     end
