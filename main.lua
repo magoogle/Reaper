@@ -198,7 +198,7 @@ on_render(function()
     end
 
     local x, y = 20, 60
-    graphics.text_2d("=== REAPER  by Magoogle ===", vec2:new(x, y), 14, color_orange(255))
+    graphics.text_2d("=== REAPER  v1.8  by Magoogle ===", vec2:new(x, y), 14, color_orange(255))
     y = y + 20
 
     if boss then
