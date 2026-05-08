@@ -192,10 +192,9 @@ on_render(function()
     graphics.text_2d("── Key Pools ──", vec2:new(x, y), 12, color_white(180))
     y = y + 14
     local rows = {
-        { "Initiate Lair Keys", pool.initiate    },
-        { "Lair Keys         ", pool.lair        },
-        { "Greater Lair Keys ", pool.greater     },
-        { "Belial (Husks)    ", pool.belial_runs },
+        { "Lair Keys        ", pool.lair        },
+        { "Greater Lair Keys", pool.greater     },
+        { "Belial (Husks)   ", pool.belial_runs },
     }
     for _, r in ipairs(rows) do
         local col = r[2] > 0 and color_white(220) or color_red(180)

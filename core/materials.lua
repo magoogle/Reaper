@@ -3,16 +3,18 @@
 --
 --  Inventory scanner for the Lair Key boss-summoning system.
 --
---    Lair Key (Initiate / standard / Greater)
---                      → summons any non-Belial boss (1 per run, pooled)
---    Betrayer's Husk   → Belial only (HUSK_COST_BELIAL per run)
+--    Lair Key          → standard tier; 1 per non-Belial run (mid-tier bosses)
+--    Greater Lair Key  → upgraded tier; 1 per non-Belial run (high-tier bosses)
+--    Betrayer's Husk   → Belial only; HUSK_COST_BELIAL per run
 --
---  All three Lair Key tiers feed a single shared pool. To disable a tier
---  (e.g. save Greaters for manual runs) set its SNO constant to 0.
+--  D4 ships two SNO IDs that are both rendered as "Lair Key"
+--  ("Initiate Lair Key" 2558178 and "Lair Key" 2556388). They are
+--  functionally the same item and are both counted toward the
+--  `lair_keys` pool.
 --
 --  SNO IDs cross-referenced against LooteerV3/data/items.lua:
 --    [2556388] Lair Key
---    [2558178] Initiate Lair Key
+--    [2558178] Initiate Lair Key (treated as Lair Key)
 --    [2558255] Greater Lair Key
 --    [2194099] Betrayer's Husk
 -- ============================================================
@@ -20,21 +22,19 @@
 local materials = {}
 
 -- -------------------------------------------------------
--- SNO IDs (set any tier to 0 to exclude it from the pool)
+-- SNO IDs (set any constant to 0 to exclude it from the pool)
 -- -------------------------------------------------------
-local INITIATE_LAIR_KEY_SNO = 2558178   -- Initiate Lair Key
-local LAIR_KEY_SNO          = 2556388   -- Lair Key
-local GREATER_LAIR_KEY_SNO  = 2558255   -- Greater Lair Key
-local HUSK_SNO              = 2194099   -- Betrayer's Husk (Belial)
+local LAIR_KEY_SNOS        = { 2556388, 2558178 }   -- "Lair Key" + "Initiate Lair Key"
+local GREATER_LAIR_KEY_SNO = 2558255                -- Greater Lair Key
+local HUSK_SNO             = 2194099                -- Betrayer's Husk (Belial)
 
-local HUSK_COST_BELIAL      = 2         -- husks consumed per Belial run
+local HUSK_COST_BELIAL     = 2                      -- husks consumed per Belial run
 
 -- Expose for other modules that need to know the cost
-materials.HUSK_COST_BELIAL      = HUSK_COST_BELIAL
-materials.INITIATE_LAIR_KEY_SNO = INITIATE_LAIR_KEY_SNO
-materials.LAIR_KEY_SNO          = LAIR_KEY_SNO
-materials.GREATER_LAIR_KEY_SNO  = GREATER_LAIR_KEY_SNO
-materials.HUSK_SNO              = HUSK_SNO
+materials.HUSK_COST_BELIAL     = HUSK_COST_BELIAL
+materials.LAIR_KEY_SNOS        = LAIR_KEY_SNOS
+materials.GREATER_LAIR_KEY_SNO = GREATER_LAIR_KEY_SNO
+materials.HUSK_SNO             = HUSK_SNO
 
 -- -------------------------------------------------------
 -- Helpers
@@ -61,27 +61,31 @@ local function get_consumables()
     return items
 end
 
+local function is_lair_key_sno(sno)
+    for _, s in ipairs(LAIR_KEY_SNOS) do
+        if s ~= 0 and sno == s then return true end
+    end
+    return false
+end
+
 -- -------------------------------------------------------
 -- Public: scan all relevant inventory
--- Returns { initiate_lair_keys, lair_keys, greater_lair_keys, husks }
+-- Returns { lair_keys, greater_lair_keys, husks }
 -- Lair Keys can live in either dungeon_keys or consumables depending on
 -- the patch, so both inventories are searched.
 -- -------------------------------------------------------
 function materials.scan_keys()
     local result = {
-        initiate_lair_keys = 0,
-        lair_keys          = 0,
-        greater_lair_keys  = 0,
-        husks              = 0,
+        lair_keys         = 0,
+        greater_lair_keys = 0,
+        husks             = 0,
     }
 
     local function tally(items)
         for _, item in ipairs(items) do
             local ok, sno = pcall(function() return item:get_sno_id() end)
             if ok and sno then
-                if sno == INITIATE_LAIR_KEY_SNO and INITIATE_LAIR_KEY_SNO ~= 0 then
-                    result.initiate_lair_keys = result.initiate_lair_keys + safe_count(item)
-                elseif sno == LAIR_KEY_SNO and LAIR_KEY_SNO ~= 0 then
+                if is_lair_key_sno(sno) then
                     result.lair_keys = result.lair_keys + safe_count(item)
                 elseif sno == GREATER_LAIR_KEY_SNO and GREATER_LAIR_KEY_SNO ~= 0 then
                     result.greater_lair_keys = result.greater_lair_keys + safe_count(item)
@@ -97,10 +101,10 @@ function materials.scan_keys()
     return result
 end
 
--- Total non-Belial runs available from the shared key pool.
+-- Total non-Belial runs available across both lair tiers.
 function materials.lair_runs_available()
     local k = materials.scan_keys()
-    return k.initiate_lair_keys + k.lair_keys + k.greater_lair_keys
+    return k.lair_keys + k.greater_lair_keys
 end
 
 -- Number of Belial runs available from husks.
@@ -119,10 +123,9 @@ function materials.has_inventory_stock(settings)
     for _, bd in ipairs(enums.boss_zones) do
         if settings.boss_enabled[bd.id] then
             local tier = bd.key_tier or "lair"
-            if tier == "husk" and k.husks >= HUSK_COST_BELIAL then return true end
-            if tier == "initiate" and k.initiate_lair_keys > 0 then return true end
-            if tier == "lair"     and k.lair_keys          > 0 then return true end
-            if tier == "greater"  and k.greater_lair_keys  > 0 then return true end
+            if tier == "husk"    and k.husks >= HUSK_COST_BELIAL then return true end
+            if tier == "lair"    and k.lair_keys          > 0    then return true end
+            if tier == "greater" and k.greater_lair_keys  > 0    then return true end
         end
     end
     return false
@@ -153,8 +156,8 @@ end
 function materials.print_summary()
     local k = materials.scan_keys()
     console.print(string.format(
-        "[Reaper] Inventory: initiate=%d  lair=%d  greater=%d  husks=%d  (Belial runs=%d, pooled boss runs=%d)",
-        k.initiate_lair_keys, k.lair_keys, k.greater_lair_keys, k.husks,
+        "[Reaper] Inventory: lair=%d  greater=%d  husks=%d  (Belial runs=%d, lair runs=%d)",
+        k.lair_keys, k.greater_lair_keys, k.husks,
         materials.belial_runs_available(), materials.lair_runs_available()))
 end
 

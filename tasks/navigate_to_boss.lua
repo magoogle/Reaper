@@ -132,6 +132,12 @@ local nav = {
     trav_start_pos      = nil,    -- player position when we started approaching traversal
     trav_got_close      = false,  -- true once player was within 3m of traversal
     trav_attempts       = 0,      -- how many traversal crossing attempts this run
+    -- Set when path-file walking fails (no path file, or path completes without
+    -- the altar in sight). Forces the Batmobile branch on subsequent pulses
+    -- even if settings.use_batmobile is false, so navigation has a fallback.
+    -- Cleared by reset_nav (i.e. once the boss room is reached and a fresh run
+    -- begins).
+    fallback_to_batmobile = false,
 }
 
 local function now() return get_time_since_inject() end
@@ -152,6 +158,7 @@ local function reset_nav()
     nav.trav_start_pos     = nil
     nav.trav_got_close     = false
     nav.trav_attempts      = 0
+    nav.fallback_to_batmobile = false
     map_nav.reset()
     pathwalker.stop_walking()
     if BatmobilePlugin then
@@ -352,8 +359,13 @@ function task.Execute()
             return
         end
 
-        if settings.use_batmobile then
-            -- ---- Batmobile-ONLY branch ----
+        local use_batmobile = settings.use_batmobile or nav.fallback_to_batmobile
+        if use_batmobile then
+            -- ---- Batmobile branch ----
+            -- Used either because settings.use_batmobile is on, or because the
+            -- path-file branch already gave up on this boss this run. In the
+            -- fallback case BatmobilePlugin must be present (we checked before
+            -- setting the flag).
             -- Primary nav: navigate_long_path (uncapped A* to altar/seed).
             -- On failure: Batmobile standard nav (set_target/update/move) walks us
             -- closer for LONG_PATH_WAIT_FRAMES frames, then long path is retried.
@@ -538,14 +550,38 @@ function task.Execute()
             local path = pick_best_path(variants)
             if path then
                 pathwalker.start_walking_path_with_points(path, boss.id)
+            elseif BatmobilePlugin then
+                console.print("[Reaper] No path file for " .. boss.id ..
+                    " — engaging Batmobile fallback.")
+                BatmobilePlugin.reset(plugin_label)
+                if BatmobilePlugin.clear_traversal_blacklist then
+                    BatmobilePlugin.clear_traversal_blacklist(plugin_label)
+                end
+                BatmobilePlugin.resume(plugin_label)
+                nav.fallback_to_batmobile = true
+                return  -- next pulse re-enters PATHWALKING via the Batmobile branch
             else
-                console.print("[Reaper] No path variants found for " .. boss.id .. " — skipping.")
+                console.print("[Reaper] No path file for " .. boss.id ..
+                    " and BatmobilePlugin unavailable — skipping.")
                 nav.path_exhausted = true
                 reset_nav()
                 return
             end
         end
         if pathwalker.is_path_completed() then
+            -- Path finished but altar still isn't in range — fall back to
+            -- Batmobile so navigation isn't dead-ended on a stale path file.
+            if not utils.get_altar() and BatmobilePlugin then
+                console.print("[Reaper] Path complete, altar not visible — engaging Batmobile fallback.")
+                pathwalker.stop_walking()
+                BatmobilePlugin.reset(plugin_label)
+                if BatmobilePlugin.clear_traversal_blacklist then
+                    BatmobilePlugin.clear_traversal_blacklist(plugin_label)
+                end
+                BatmobilePlugin.resume(plugin_label)
+                nav.fallback_to_batmobile = true
+                return
+            end
             console.print("[Reaper] Path complete.")
             pathwalker.stop_walking()
             reset_nav()

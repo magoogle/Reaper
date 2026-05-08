@@ -30,8 +30,7 @@ enums.altar_names = {
 -- harbinger and urivar are WT5 variants accessible via Belial chest.
 --
 -- key_tier  → which inventory item the boss's altar consumes per run:
---               "initiate" = Initiate Lair Key (sno 2558178)
---               "lair"     = Lair Key          (sno 2556388)
+--               "lair"     = Lair Key          (sno 2556388 / 2558178)
 --               "greater"  = Greater Lair Key  (sno 2558255)
 --               "husk"     = Betrayer's Husk   (sno 2194099)
 --             Edit these to match your live game requirements.

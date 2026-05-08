@@ -95,10 +95,9 @@ function gui.render()
         for _, bd in ipairs(enums.boss_zones) do
             local tier = bd.key_tier or "lair"
             local tier_label = ({
-                initiate = "Initiate Lair Key",
-                lair     = "Lair Key",
-                greater  = "Greater Lair Key",
-                husk     = "Betrayer's Husks",
+                lair    = "Lair Key",
+                greater = "Greater Lair Key",
+                husk    = "Betrayer's Husks",
             })[tier] or tier
             local hint
             if tier == "husk" then
@@ -146,7 +145,7 @@ function gui.render()
         gui.elements.use_alfred:render("Use Alfred",
             "Hand off inventory/repair/restock tasks to Alfred.")
         gui.elements.use_batmobile:render("Use Batmobile Navigation",
-            "Use BatmobilePlugin autonomous navigation instead of pre-recorded path files.")
+            "Always use BatmobilePlugin for navigation. When off, path files are tried first and Batmobile is engaged automatically as a fallback.")
 
         gui.elements.misc_tree:pop()
     end

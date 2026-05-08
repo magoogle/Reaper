@@ -5,8 +5,7 @@
 --  available item pools.
 --
 --  Each boss specifies its own key tier in data/enums.lua:
---    key_tier = "initiate" → Initiate Lair Key
---    key_tier = "lair"     → Lair Key
+--    key_tier = "lair"     → Lair Key (also matches "Initiate Lair Key" SNO)
 --    key_tier = "greater"  → Greater Lair Key
 --    key_tier = "husk"     → Belial: HUSK_COST_BELIAL Husks per run
 --
@@ -27,10 +26,9 @@ rotation.initialized = false
 
 -- Per-tier pool counters — drained as runs complete.
 rotation.pools = {
-    initiate = 0,
-    lair     = 0,
-    greater  = 0,
-    husk     = 0,
+    lair    = 0,
+    greater = 0,
+    husk    = 0,
 }
 
 -- When true, the rotation was injected externally (e.g. by WarMachine via
@@ -91,10 +89,9 @@ end
 
 local function load_pools_from_inventory()
     local k = materials.scan_keys()
-    rotation.pools.initiate = k.initiate_lair_keys
-    rotation.pools.lair     = k.lair_keys
-    rotation.pools.greater  = k.greater_lair_keys
-    rotation.pools.husk     = k.husks
+    rotation.pools.lair    = k.lair_keys
+    rotation.pools.greater = k.greater_lair_keys
+    rotation.pools.husk    = k.husks
 end
 
 -- -------------------------------------------------------
@@ -113,9 +110,8 @@ function rotation.build(settings)
 
     console.print("[Reaper] Building rotation...")
     console.print(string.format(
-        "  pools: initiate=%d  lair=%d  greater=%d  husks=%d  (Belial cost=%d)",
-        rotation.pools.initiate, rotation.pools.lair,
-        rotation.pools.greater, rotation.pools.husk, HUSK_COST))
+        "  pools: lair=%d  greater=%d  husks=%d  (Belial cost=%d)",
+        rotation.pools.lair, rotation.pools.greater, rotation.pools.husk, HUSK_COST))
 
     if not settings or not settings.boss_enabled then
         console.print("[Reaper] No boss selection in settings — nothing to farm.")
@@ -178,7 +174,6 @@ end
 
 function rotation.pool_summary()
     return {
-        initiate    = rotation.pools.initiate,
         lair        = rotation.pools.lair,
         greater     = rotation.pools.greater,
         husks       = rotation.pools.husk,
@@ -186,7 +181,7 @@ function rotation.pool_summary()
     }
 end
 
--- Runs available for a specific tier ("initiate" | "lair" | "greater" | "husk").
+-- Runs available for a specific tier ("lair" | "greater" | "husk").
 function rotation.runs_for_tier(tier)
     if tier == "husk" then
         return math.floor(rotation.pools.husk / HUSK_COST)
@@ -225,10 +220,9 @@ function rotation.consume_run()
     refresh_runs_remaining()
 
     console.print(string.format(
-        "[Reaper] %s (%s) – run complete. pools: initiate=%d  lair=%d  greater=%d  husks=%d",
+        "[Reaper] %s (%s) – run complete. pools: lair=%d  greater=%d  husks=%d",
         boss.label, tier,
-        rotation.pools.initiate, rotation.pools.lair,
-        rotation.pools.greater, rotation.pools.husk))
+        rotation.pools.lair, rotation.pools.greater, rotation.pools.husk))
 
     if rotation.external then
         -- External callers want a single kill — leave current_idx alone and
@@ -309,10 +303,9 @@ function rotation.set_external(boss_id, run_type)
     -- External rotations bypass real pool counters: the orchestrator owns when
     -- to stop, and we don't want is_done() to short-circuit on a coincidentally
     -- empty inventory.
-    rotation.pools.initiate = (tier == "initiate") and 1 or rotation.pools.initiate
-    rotation.pools.lair     = (tier == "lair")     and 1 or rotation.pools.lair
-    rotation.pools.greater  = (tier == "greater")  and 1 or rotation.pools.greater
-    rotation.pools.husk     = (tier == "husk")     and HUSK_COST or rotation.pools.husk
+    rotation.pools.lair    = (tier == "lair")    and 1 or rotation.pools.lair
+    rotation.pools.greater = (tier == "greater") and 1 or rotation.pools.greater
+    rotation.pools.husk    = (tier == "husk")    and HUSK_COST or rotation.pools.husk
     tracker.current_boss_kills = 0
 
     console.print(string.format("[Reaper] External rotation set: %s [%s]",

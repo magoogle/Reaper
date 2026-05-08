@@ -25,10 +25,11 @@ Each boss requires a specific key tier — pools are tracked separately, not poo
 
 | Item | SNO | Used by |
 |---|---|---|
-| **Initiate Lair Key** | `2558178` | (none by default — edit `data/enums.lua` to assign) |
-| **Lair Key** | `2556388` | Varshan, Grigoire, Lord Zir, Beast in Ice, Urivar |
+| **Lair Key** | `2556388` / `2558178` | Varshan, Grigoire, Lord Zir, Beast in Ice, Urivar |
 | **Greater Lair Key** | `2558255` | Duriel, Andariel, Bloody Butcher, Harbinger of Hatred |
 | **Betrayer's Husk** | `2194099` | Belial — `HUSK_COST_BELIAL` (default 2) per run |
+
+The two Lair Key SNOs (regular + Initiate) are functionally the same item and both feed the Lair Key pool.
 
 Each boss's required key is set by its `key_tier` field in `data/enums.lua`. Edit that file to change which tier a boss expects. A boss is removed from the rotation when its required tier hits zero, regardless of whether other tiers still have stock.
 
@@ -39,6 +40,9 @@ Reaper writes a teleport command to `command.txt` and waits for D4Assistant to m
 
 ### Built-in Map Navigation (D4Assistant disabled)
 Reaper navigates to the boss using the in-game waypoint map. Calibrate click positions under **Boss Icon Alignment** before use.
+
+### Batmobile Fallback
+Whether or not the **Use Batmobile Navigation** toggle is on, BatmobilePlugin is automatically engaged as a fallback whenever a boss has no path file or a path-file walk completes without the altar in sight. Toggle the setting on to use Batmobile as the primary navigation everywhere.
 
 ## Belial Chest Automation
 
