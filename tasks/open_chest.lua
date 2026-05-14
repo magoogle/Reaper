@@ -15,11 +15,11 @@
 local utils     = require "core.utils"
 local tracker   = require "core.tracker"
 local rotation  = require "core.boss_rotation"
+local settings  = require "core.settings"
 
 -- ---- Config ----
 local CHEST_INTERACT_COOLDOWN = 0.5  -- min seconds between EGB chest interact attempts
 local WAIT_GONE_SECS          = 10   -- if chest still here after this → out of mats
-local WAIT_COMPLETE_SECS      = 3    -- pause after chest before next run
 local OUT_OF_MATS_RETRIES     = 3    -- times chest can fail to despawn before stopping
 
 -- ---- State ----
@@ -221,7 +221,7 @@ function task.Execute()
 
     -- ---- WAIT_COMPLETE: brief pause to loot, then start next run ----
     if phase == "WAIT_COMPLETE" then
-        if phase_elapsed() < WAIT_COMPLETE_SECS then return end
+        if phase_elapsed() < (settings.chest_loot_delay or 20) then return end
         local boss = rotation.current()
         console.print(string.format("[Chest] Run complete — boss=%s  run_type=%s",
             tostring(boss and boss.id), tostring(boss and boss.run_type)))

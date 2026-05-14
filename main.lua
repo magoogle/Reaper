@@ -1,5 +1,5 @@
 -- ============================================================
---  Reaper  v1.9
+--  Reaper  v2.0
 --  by Magoogle
 --
 --  Flow per run:
@@ -211,7 +211,7 @@ on_render(function()
     end
 
     local x, y = 20, 60
-    graphics.text_2d("=== REAPER  v1.9  by Magoogle ===", vec2:new(x, y), 14, color_orange(255))
+    graphics.text_2d("=== REAPER  v2.0  by Magoogle ===", vec2:new(x, y), 14, color_orange(255))
     y = y + 20
 
     if boss then
@@ -241,35 +241,30 @@ on_render(function()
             vec2:new(x, y), 12, col)
         y = y + 13
     end
-end)
 
--- -------------------------------------------------------
--- Belial chest calibration overlay
--- Drawn whenever the user has the show-crosshairs toggle on, regardless
--- of whether the farmer is enabled, so they can tune positions in front
--- of the live Ritual of Lies dialog without arming the bot.
--- -------------------------------------------------------
-on_render(function()
+    -- Belial chest calibration overlay — drawn regardless of main toggle so
+    -- the user can tune click positions while standing at the chest without
+    -- arming the bot. Must be inside the single on_render; a second
+    -- on_render registration is silently ignored by the plugin host.
     local cfg = settings.belial_chest
-    if not cfg or not cfg.show_crosshairs then return end
-
-    local pts = belial_chest.get_ref_points and belial_chest.get_ref_points(cfg)
-    if not pts then return end
-
-    local color_for = {
-        yellow = color_yellow,
-        orange = color_orange,
-        green  = color_green,
-        white  = color_white,
-        red    = color_red,
-        cyan   = color_orange,  -- no native cyan; closest is orange
-    }
-
-    for _, p in ipairs(pts) do
-        local sx, sy = belial_chest.resolve_ref_to_screen(p.x, p.y)
-        local cf = color_for[p.color] or color_white
-        graphics.text_2d("+",      vec2:new(sx - 4, sy - 9), 22, cf(255))
-        graphics.text_2d(p.label, vec2:new(sx + 10, sy - 7), 12, cf(200))
+    if cfg and cfg.show_crosshairs then
+        local pts = belial_chest.get_ref_points and belial_chest.get_ref_points(cfg)
+        if pts then
+            local color_for = {
+                yellow = color_yellow,
+                orange = color_orange,
+                green  = color_green,
+                white  = color_white,
+                red    = color_red,
+                cyan   = color_orange,
+            }
+            for _, p in ipairs(pts) do
+                local sx, sy = belial_chest.resolve_ref_to_screen(p.x, p.y)
+                local cf = color_for[p.color] or color_white
+                graphics.text_2d("+",      vec2:new(sx - 4, sy - 9), 22, cf(255))
+                graphics.text_2d(p.label, vec2:new(sx + 10, sy - 7), 12, cf(200))
+            end
+        end
     end
 end)
 
@@ -339,6 +334,6 @@ ReaperPlugin = {
 }
 
 console.print("=============================================")
-console.print("  Reaper  v1.9  by Magoogle  - Loaded")
+console.print("  Reaper  v2.0  by Magoogle  - Loaded")
 console.print("  Enable in menu to start reaping")
 console.print("=============================================")

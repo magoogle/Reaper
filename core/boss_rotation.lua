@@ -34,6 +34,7 @@ rotation.pools = {
     lair    = 0,
     greater = 0,
     husk    = 0,
+    sigil   = 0,  -- sigil runs are orchestrator-driven; pool seeded by set_external
 }
 
 -- When true, the rotation was injected externally (e.g. by WarMachine via
@@ -351,12 +352,12 @@ function rotation.set_external(boss_id, run_type)
     end
 
     -- Resolve run_type to a current-system tier. Accepts:
-    --   nil / "lair_key" / "material" / "sigil"  → resolve from enum (legacy
-    --                                              orchestrators don't know
-    --                                              about the new tiers)
-    --   "lair" / "greater" / "husk"              → explicit override
+    --   nil / "lair_key" / "material"  → resolve from enum (legacy orchestrators)
+    --   "lair" / "greater" / "husk"   → explicit tier override
+    --   "sigil"                        → sigil run; passes through as-is so
+    --                                    sigil_complete task can detect run_type
     local tier = run_type
-    if tier == nil or tier == "lair_key" or tier == "material" or tier == "sigil" then
+    if tier == nil or tier == "lair_key" or tier == "material" then
         tier = boss_def.key_tier or "lair"
     end
 
@@ -378,6 +379,7 @@ function rotation.set_external(boss_id, run_type)
     rotation.pools.lair    = (tier == "lair")    and 1 or rotation.pools.lair
     rotation.pools.greater = (tier == "greater") and 1 or rotation.pools.greater
     rotation.pools.husk    = (tier == "husk")    and HUSK_COST or rotation.pools.husk
+    rotation.pools.sigil   = (tier == "sigil")   and 1 or rotation.pools.sigil
     tracker.current_boss_kills = 0
 
     console.print(string.format("[Reaper] External rotation set: %s [%s]",

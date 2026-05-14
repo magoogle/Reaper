@@ -50,6 +50,7 @@ local task_files = {
     "navigate_to_boss", -- teleport + walk to entrance
     "interact_altar",   -- summon boss
     "kill_monsters",    -- fight
+    "sigil_complete",   -- detect sigil run cleared, return to town (sigil run_type only)
     "open_chest",       -- open reward chest
 }
 

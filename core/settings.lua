@@ -11,6 +11,11 @@ local settings = {
     use_batmobile    = false,
     manage_orbwalker = false,
 
+    -- Seconds to linger at the boss chest after opening it before the altar
+    -- task is allowed to re-interact. Drives both open_chest's WAIT_COMPLETE
+    -- pause and interact_altar's post-chest gate.
+    chest_loot_delay = 20,
+
     -- Resolved from gui.town selection in update_settings(). Defaults to
     -- gui.town_data[0] (Temis) so first-frame reads are valid before the GUI
     -- pulse runs. Tasks read these instead of hardcoding Cerrigar so the
@@ -63,6 +68,7 @@ function settings:update_settings()
     settings.use_alfred       = gui.elements.use_alfred:get()
     settings.use_batmobile    = gui.elements.use_batmobile:get()
     settings.manage_orbwalker = gui.elements.manage_orbwalker:get()
+    settings.chest_loot_delay = gui.elements.chest_loot_delay:get()
 
     local town_idx        = gui.elements.town:get()
     local town_data       = gui.town_data[town_idx] or gui.town_data[0]

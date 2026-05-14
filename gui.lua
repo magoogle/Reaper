@@ -70,6 +70,10 @@ gui.elements = {
     use_batmobile    = cb(false, "batmobile"),
     manage_orbwalker = cb(false, "manage_orb"),
 
+    -- Seconds to stand next to the boss chest after opening it before the
+    -- altar can be re-interacted (gives loot time to fully drop / be vacuumed).
+    chest_loot_delay = si(0, 60, 20, "chest_loot_delay"),
+
     -- Default 0 = Temis (matches ArkhamAsylum's default).
     town          = cbo(0,    "town"),
 
@@ -118,7 +122,7 @@ end
 
 -- -------------------------------------------------------
 function gui.render()
-    if not gui.elements.main_tree:push(plugin_label .. "  v1.9  by Magoogle") then return end
+    if not gui.elements.main_tree:push(plugin_label .. "  v2.0  by Magoogle") then return end
 
     gui.elements.main_toggle:render("Enable", "Start / stop the boss farmer")
 
@@ -217,6 +221,8 @@ function gui.render()
             "Always use BatmobilePlugin for navigation. When off, path files are tried first and Batmobile is engaged automatically as a fallback.")
         gui.elements.manage_orbwalker:render("Manage Orbwalker",
             "When OFF (default), Reaper never touches orbwalker — your rotation owns it. When ON, Reaper forces clear-mode + block-movement during boss combat.")
+        gui.elements.chest_loot_delay:render("Chest Loot Delay (s)",
+            "Seconds to stand next to the boss chest after opening it before the altar can be re-interacted. Higher = more time for loot to drop / be picked up.")
 
         gui.elements.misc_tree:pop()
     end

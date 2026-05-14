@@ -141,9 +141,12 @@ function task.shouldExecute()
         end
     end
 
-    -- Brief pause after a chest open before re-activating
+    -- Pause after a chest open before re-activating the altar so loot has
+    -- time to fully drop / be picked up. Duration set by the Chest Loot Delay
+    -- slider in the Settings panel.
     if tracker.chest_opened_time then
-        if os.time() < tracker.chest_opened_time + 6 then return false end
+        local delay = settings.chest_loot_delay or 20
+        if os.time() < tracker.chest_opened_time + delay then return false end
     end
 
     -- Keep running while last_interact_time is set (waiting for altar to disappear)
