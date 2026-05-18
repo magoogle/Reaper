@@ -26,7 +26,9 @@ local rotation = require "core.boss_rotation"
 local settings = require "core.settings"
 
 local NO_KILL_TIMEOUT  = 30.0  -- seconds with no enemy death → run complete
+local LAIR_LOAD_TIMEOUT = 35.0 -- bail out if zone never becomes the lair (e.g. interact missed)
 local ENEMY_SCAN_RANGE = 50    -- target_selector radius for alive-enemy count
+local LAIR_ZONE_PATTERN = "^Warplans_Boss_NemesisLair"
 
 local STATE = {
     IDLE        = "IDLE",
@@ -36,14 +38,20 @@ local STATE = {
 }
 
 local s = {
-    state          = STATE.IDLE,
-    t              = -999,
-    last_count     = nil,
-    last_log_t     = -999,
+    state           = STATE.IDLE,
+    t               = -999,
+    last_count      = nil,
+    last_log_t      = -999,
+    idle_armed_t    = nil,  -- timestamp we first started waiting for the lair zone
 }
 
 local function now()         return get_time_since_inject() end
 local function set_state(st) s.state = st; s.t = now() end
+
+local function in_lair()
+    local zone = utils.get_zone()
+    return type(zone) == "string" and zone:find(LAIR_ZONE_PATTERN) ~= nil
+end
 
 local function count_enemies()
     local lp = get_local_player()
@@ -57,10 +65,11 @@ local task = { name = "Nemesis Fight" }
 
 function task.reset()
     settings.orb_set_clear(false)
-    s.state      = STATE.IDLE
-    s.t          = -999
-    s.last_count = nil
-    s.last_log_t = -999
+    s.state        = STATE.IDLE
+    s.t            = -999
+    s.last_count   = nil
+    s.last_log_t   = -999
+    s.idle_armed_t = nil
 end
 
 function task.shouldExecute()
@@ -72,14 +81,34 @@ end
 function task.Execute()
     local t = now()
 
-    -- ---- IDLE: arm timer, start watching ----
+    -- ---- IDLE: wait for the Warplans_Boss_NemesisLair zone, then arm timer ----
+    --
+    -- open_chest sets tracker.nemesis_entered the moment it clicks the portal,
+    -- so this task starts driving immediately — BEFORE the zone transition
+    -- completes. The explicit zone check below ensures the 30s no-kill timer
+    -- doesn't start counting while we're still on the loading screen, which
+    -- would eat into the actual fight window.
     if s.state == STATE.IDLE then
+        if not s.idle_armed_t then s.idle_armed_t = t end
+
+        if not in_lair() then
+            if (t - s.idle_armed_t) >= LAIR_LOAD_TIMEOUT then
+                console.print(string.format(
+                    "[Nemesis] Lair zone never confirmed after %.0fs — bailing to %s.",
+                    LAIR_LOAD_TIMEOUT, settings.town_zone))
+                teleport_to_waypoint(settings.town_waypoint)
+                set_state(STATE.TELEPORTING)
+            end
+            return
+        end
+
         tracker.nemesis_last_kill_t = t
-        s.last_count = count_enemies()
+        s.last_count   = count_enemies()
+        s.idle_armed_t = nil
         set_state(STATE.WATCHING)
         console.print(string.format(
-            "[Nemesis] Entered lair — watching for kills (timeout=%ds, enemies=%d).",
-            NO_KILL_TIMEOUT, s.last_count))
+            "[Nemesis] Entered lair (%s) — watching for kills (timeout=%ds, enemies=%d).",
+            utils.get_zone(), NO_KILL_TIMEOUT, s.last_count))
         return
     end
 
@@ -112,6 +141,10 @@ function task.Execute()
         end
 
         if idle >= NO_KILL_TIMEOUT then
+            -- Don't yank the player out from under Looter while drops are
+            -- still being picked up. Naturally clears next tick.
+            if settings.looter_busy() then return end
+
             console.print(string.format(
                 "[Nemesis] %ds idle — Nemesis run complete, teleporting to %s.",
                 NO_KILL_TIMEOUT, settings.town_zone))

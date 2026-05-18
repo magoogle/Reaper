@@ -8,6 +8,12 @@ local tracker = {
     finished_time       = 0,
     chest_opened_time   = nil,
     altar_activate_time = 0,   -- get_time_since_inject() when altar was activated
+    -- Position of the altar at the moment we interacted with it. Used by
+    -- kill_monsters as the tether anchor once the altar actor disappears.
+    -- Cached because some bosses (e.g. Butcher) have no entry in
+    -- enums.positions.boss_room, and the (0,0,0) fallback there sent the
+    -- player to the far corner of the arena.
+    altar_position      = nil,
 
     -- per-run flags
     altar_activated         = false,
@@ -42,6 +48,7 @@ function tracker.reset_run()
     tracker.start_time              = 0
     tracker.finished_time           = 0
     tracker.chest_opened_time       = nil
+    tracker.altar_position          = nil
     tracker.nemesis_entered         = false
     tracker.nemesis_resolved        = false
     tracker.nemesis_last_kill_t     = 0

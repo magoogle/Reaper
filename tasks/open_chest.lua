@@ -10,7 +10,10 @@
 --    NEMESIS_LOOK     → scan briefly for a Warplans_Portal_NemesisPortal (random
 --                       post-loot spawn); on timeout fall through to WAIT_COMPLETE
 --    NEMESIS_APPROACH → walk to the portal and interact; hand off to nemesis_fight
---                       once zone change confirms we entered
+--                       on the interact call itself (NOT on zone change) so its
+--                       higher priority preempts navigate_to_boss during the
+--                       brief loading window. nemesis_fight confirms the lair
+--                       zone (Warplans_Boss_NemesisLair) before arming its timer.
 --    WAIT_COMPLETE    → brief pause to loot, then consume_run + reset for next cycle
 --
 --  When the nemesis flow is entered, consume_run is performed by nemesis_fight
@@ -190,12 +193,11 @@ function task.shouldExecute()
         return false
     end
 
-    local zone_ok = in_target_boss_zone()
-
-    -- NEMESIS_APPROACH straddles the zone boundary: the player interacts with
-    -- the portal while still in the boss zone, then leaves it. Execute uses the
-    -- zone change as the handoff trigger, so don't reset state mid-transition.
-    if not zone_ok and phase ~= "NEMESIS_APPROACH" then
+    -- Once we click the portal, NEMESIS_APPROACH sets nemesis_entered=true
+    -- and resets phase to IDLE in the same tick, so the zone gate below never
+    -- has to reason about a "mid-transition" state — by the time the player's
+    -- zone actually changes, we've already handed off.
+    if not in_target_boss_zone() then
         if phase ~= "IDLE" then
             set_phase("IDLE")
             no_despawn_count   = 0
@@ -368,21 +370,15 @@ function task.Execute()
         return
     end
 
-    -- ---- NEMESIS_APPROACH: walk to portal, interact, hand off on zone change ----
+    -- ---- NEMESIS_APPROACH: walk to portal, interact, hand off immediately ----
+    --
+    -- Handoff is fired on the interact_object call rather than on zone change,
+    -- because the loading window between interact and "zone == Warplans_Boss_NemesisLair"
+    -- lasts long enough for navigate_to_boss to slip in and teleport us to the
+    -- next boss. By setting tracker.nemesis_entered as soon as we click the
+    -- portal, nemesis_fight (priority #3) owns the slot throughout the load.
+    -- nemesis_fight itself confirms the lair zone before starting the kill timer.
     if phase == "NEMESIS_APPROACH" then
-        -- Zone change = we entered the portal. Hand off to nemesis_fight.
-        if not in_target_boss_zone() then
-            console.print("[Chest] Zone change detected — entered Nemesis lair, handing off.")
-            tracker.nemesis_entered     = true
-            tracker.nemesis_resolved    = false
-            tracker.nemesis_last_kill_t = 0
-            nemesis_portal_pos = nil
-            home_zone_prefix   = nil
-            last_chest_pos     = nil
-            set_phase("IDLE")
-            return
-        end
-
         if phase_elapsed() >= NEMESIS_APPROACH_SECS then
             console.print(string.format(
                 "[Chest] Nemesis approach timeout (%ds) — skipping bonus.",
@@ -395,7 +391,6 @@ function task.Execute()
         local portal = find_nemesis_portal()
         local target_pos = portal and portal:get_position() or nemesis_portal_pos
         if not target_pos then
-            -- Portal vanished before we could reach it; fall through.
             console.print("[Chest] Nemesis portal lost — skipping bonus.")
             set_phase("WAIT_COMPLETE")
             return
@@ -410,14 +405,22 @@ function task.Execute()
         if portal and (t - nemesis_interact_t) >= NEMESIS_INTERACT_CD then
             interact_object(portal)
             nemesis_interact_t = t
-            console.print("[Chest] Interacting with Nemesis portal.")
+            console.print("[Chest] Interacting with Nemesis portal — handing off to nemesis_fight.")
+
+            tracker.nemesis_entered     = true
+            tracker.nemesis_resolved    = false
+            tracker.nemesis_last_kill_t = 0
+            nemesis_portal_pos = nil
+            home_zone_prefix   = nil
+            last_chest_pos     = nil
+            set_phase("IDLE")
         end
         return
     end
 
     -- ---- WAIT_COMPLETE: brief pause to loot, then start next run ----
     if phase == "WAIT_COMPLETE" then
-        if phase_elapsed() < (settings.chest_loot_delay or 20) then return end
+        if not settings.loot_pause_done(phase_start) then return end
         local boss = rotation.current()
         console.print(string.format("[Chest] Run complete — boss=%s  run_type=%s",
             tostring(boss and boss.id), tostring(boss and boss.run_type)))

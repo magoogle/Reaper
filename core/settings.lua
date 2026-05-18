@@ -10,10 +10,12 @@ local settings = {
     use_alfred       = true,
     use_batmobile    = false,
     manage_orbwalker = false,
+    use_looter       = true,   -- poll LooteerPlugin instead of waiting chest_loot_delay
 
     -- Seconds to linger at the boss chest after opening it before the altar
     -- task is allowed to re-interact. Drives both open_chest's WAIT_COMPLETE
-    -- pause and interact_altar's post-chest gate.
+    -- pause and interact_altar's post-chest gate when Looter integration is
+    -- off or LooteerPlugin isn't loaded.
     chest_loot_delay = 20,
 
     -- Resolved from gui.town selection in update_settings(). Defaults to
@@ -68,6 +70,7 @@ function settings:update_settings()
     settings.use_alfred       = gui.elements.use_alfred:get()
     settings.use_batmobile    = gui.elements.use_batmobile:get()
     settings.manage_orbwalker = gui.elements.manage_orbwalker:get()
+    settings.use_looter       = gui.elements.use_looter:get()
     settings.chest_loot_delay = gui.elements.chest_loot_delay:get()
 
     local town_idx        = gui.elements.town:get()
@@ -148,6 +151,51 @@ settings.orb_set_block = function (v)
     if settings.manage_orbwalker then
         orbwalker.set_block_movement(v)
     end
+end
+
+-- Looter integration helpers
+-- ----------------------------------------------------------------------------
+-- looter_available()
+--   True when the user opted into Looter integration AND LooteerPlugin has
+--   exposed the live `is_actively_looting` API. Callers should fall back to
+--   the chest_loot_delay timeout when this returns false.
+--
+-- looter_busy()
+--   True when Looter is about to / currently looting something. Safe to call
+--   any time — wrapped in pcall so a malformed plugin can't crash a task.
+-- ----------------------------------------------------------------------------
+function settings.looter_available()
+    if not settings.use_looter then return false end
+    return type(LooteerPlugin) == "table"
+        and type(LooteerPlugin.is_actively_looting) == "function"
+end
+
+function settings.looter_busy()
+    if not settings.looter_available() then return false end
+    local ok, busy = pcall(LooteerPlugin.is_actively_looting)
+    return ok and busy == true
+end
+
+-- loot_pause_done(phase_start_t):
+--   Decides whether the post-chest loot pause is over. Used by
+--   open_chest.WAIT_COMPLETE and interact_altar's chest_opened_time gate.
+--
+--   - When Looter integration is active: wait LOOT_SETTLE_MIN_SECS (so drops
+--     have time to spawn into the actor list), then advance the moment Looter
+--     reports nothing left to loot.
+--   - When Looter isn't available: fall back to the chest_loot_delay slider.
+--
+--   phase_start_t is in os.time() seconds (the same clock used by both
+--   call-sites). All callers should pass the SAME timestamp shape.
+local LOOT_SETTLE_MIN_SECS = 2
+
+function settings.loot_pause_done(phase_start_t)
+    local elapsed = os.time() - (phase_start_t or 0)
+    if settings.looter_available() then
+        if elapsed < LOOT_SETTLE_MIN_SECS then return false end
+        return not settings.looter_busy()
+    end
+    return elapsed >= (settings.chest_loot_delay or 20)
 end
 
 return settings

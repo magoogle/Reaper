@@ -142,11 +142,13 @@ function task.shouldExecute()
     end
 
     -- Pause after a chest open before re-activating the altar so loot has
-    -- time to fully drop / be picked up. Duration set by the Chest Loot Delay
-    -- slider in the Settings panel.
+    -- time to fully drop / be picked up. When Looter integration is on and
+    -- LooteerPlugin is loaded, we poll Looter directly; otherwise we fall
+    -- back to the Chest Loot Delay slider value.
     if tracker.chest_opened_time then
-        local delay = settings.chest_loot_delay or 20
-        if os.time() < tracker.chest_opened_time + delay then return false end
+        if not settings.loot_pause_done(tracker.chest_opened_time) then
+            return false
+        end
     end
 
     -- Keep running while last_interact_time is set (waiting for altar to disappear)
@@ -222,6 +224,10 @@ function task.Execute()
 
     -- Enforce cooldown between attempts
     if (t - last_interact_time) < INTERACT_COOLDOWN then return end
+
+    -- Cache position BEFORE interact so kill_monsters has a valid anchor once
+    -- the altar actor despawns on success.
+    tracker.altar_position = altar:get_position()
 
     console.print("[Reaper] Interacting with altar.")
     interact_object(altar)

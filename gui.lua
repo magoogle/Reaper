@@ -70,8 +70,14 @@ gui.elements = {
     use_batmobile    = cb(false, "batmobile"),
     manage_orbwalker = cb(false, "manage_orb"),
 
+    -- When on AND LooteerPlugin is present, post-chest / pre-altar pauses
+    -- poll Looter directly instead of waiting chest_loot_delay seconds.
+    -- Falls back to the fixed delay when Looter isn't loaded.
+    use_looter       = cb(true,  "use_looter"),
+
     -- Seconds to stand next to the boss chest after opening it before the
     -- altar can be re-interacted (gives loot time to fully drop / be vacuumed).
+    -- Used as the fallback when Looter integration is off or unavailable.
     chest_loot_delay = si(0, 60, 20, "chest_loot_delay"),
 
     -- Default 0 = Temis (matches ArkhamAsylum's default).
@@ -122,7 +128,7 @@ end
 
 -- -------------------------------------------------------
 function gui.render()
-    if not gui.elements.main_tree:push(plugin_label .. "  v2.1  by Magoogle") then return end
+    if not gui.elements.main_tree:push(plugin_label .. "  v2.2  by Magoogle") then return end
 
     gui.elements.main_toggle:render("Enable", "Start / stop the boss farmer")
 
@@ -221,8 +227,10 @@ function gui.render()
             "Always use BatmobilePlugin for navigation. When off, path files are tried first and Batmobile is engaged automatically as a fallback.")
         gui.elements.manage_orbwalker:render("Manage Orbwalker",
             "When OFF (default), Reaper never touches orbwalker — your rotation owns it. When ON, Reaper forces clear-mode + block-movement during boss combat.")
+        gui.elements.use_looter:render("Use Looter Integration",
+            "When ON (default) and LooteerPlugin is loaded, post-chest pauses end as soon as Looter reports nothing left to loot. When OFF (or Looter not loaded), the Chest Loot Delay slider below is used instead.")
         gui.elements.chest_loot_delay:render("Chest Loot Delay (s)",
-            "Seconds to stand next to the boss chest after opening it before the altar can be re-interacted. Higher = more time for loot to drop / be picked up.")
+            "Fallback when Looter integration is off or LooteerPlugin isn't loaded: seconds to stand next to the boss chest after opening before the altar can be re-interacted.")
 
         gui.elements.misc_tree:pop()
     end
