@@ -2,10 +2,19 @@
 --  Reaper - tasks/open_chest.lua
 --
 --  Phases:
---    MAIN          → walk to EGB/Belial chest, interact
---    WAIT_GONE     → wait for main chest to despawn (up to WAIT_GONE_SECS)
---                    if it never despawns = out of keys/husks → stop
---    WAIT_COMPLETE → brief pause to loot, then consume_run + reset for next cycle
+--    MAIN             → walk to EGB/Belial chest, interact
+--    WAIT_GONE        → wait for main chest to despawn (up to WAIT_GONE_SECS)
+--                       if it never despawns = out of keys/husks → stop
+--    EXTRAS           → loop opening any remaining EGB_Chest_* (multiple may spawn
+--                       at the same time on lucky runs)
+--    NEMESIS_LOOK     → scan briefly for a Warplans_Portal_NemesisPortal (random
+--                       post-loot spawn); on timeout fall through to WAIT_COMPLETE
+--    NEMESIS_APPROACH → walk to the portal and interact; hand off to nemesis_fight
+--                       once zone change confirms we entered
+--    WAIT_COMPLETE    → brief pause to loot, then consume_run + reset for next cycle
+--
+--  When the nemesis flow is entered, consume_run is performed by nemesis_fight
+--  after the lair-clear timer expires — NOT by WAIT_COMPLETE.
 --
 --  Doom/seasonal "theme" chest was removed from D4 (2026-05-03 patch);
 --  the entire THEME phase and S12_Prop_Theme_Chest_* logic is gone. The
@@ -16,11 +25,15 @@ local utils     = require "core.utils"
 local tracker   = require "core.tracker"
 local rotation  = require "core.boss_rotation"
 local settings  = require "core.settings"
+local enums     = require "data.enums"
 
 -- ---- Config ----
 local CHEST_INTERACT_COOLDOWN = 0.5  -- min seconds between EGB chest interact attempts
 local WAIT_GONE_SECS          = 10   -- if chest still here after this → out of mats
 local OUT_OF_MATS_RETRIES     = 3    -- times chest can fail to despawn before stopping
+local NEMESIS_LOOK_SECS       = 12   -- scan window for nemesis portal after extras
+local NEMESIS_APPROACH_SECS   = 20   -- give up walking to portal after this
+local NEMESIS_INTERACT_CD     = 1.0  -- min seconds between portal interact attempts
 
 -- ---- State ----
 local phase              = "IDLE"
@@ -28,6 +41,20 @@ local phase_start        = 0
 local last_interact_time = 0
 local last_chest_pos     = nil
 local no_despawn_count   = 0    -- counts consecutive failures to despawn
+-- Saved zone prefix of the boss we were running when the main chest popped.
+-- Lets shouldExecute keep open_chest's state coherent if the player has
+-- (e.g.) just stepped into the nemesis portal — rotation.current() is still
+-- the same boss but utils.get_zone() no longer matches.
+local home_zone_prefix   = nil
+-- NEMESIS_APPROACH: position of the portal we're walking to.
+local nemesis_portal_pos = nil
+local nemesis_interact_t = 0
+-- EXTRAS: positions of EGB chests we've already fired interact on. Dedup by
+-- proximity so we don't re-click the same chest while it's still listed but
+-- already despawning.
+local extras_done_positions = {}
+local EXTRAS_DEDUP_RADIUS   = 1.5
+local EXTRAS_PHASE_TIMEOUT  = 25  -- hard cap on the EXTRAS sweep
 
 local function set_phase(p)
     phase       = p
@@ -65,6 +92,54 @@ local function find_egb_chest()
                     if d < best_dist then best = a; best_dist = d end
                 end
             end
+        end
+    end
+    return best
+end
+
+-- EGB-only variant for the EXTRAS phase. Multi-chest spawns are an EGB
+-- behaviour (Belial/boss-chest events are always single), so we restrict the
+-- secondary sweep to EGB_Chest_* and ignore the other patterns.
+local function _was_already_opened(pos)
+    for _, p in ipairs(extras_done_positions) do
+        if pos:dist_to(p) < EXTRAS_DEDUP_RADIUS then return true end
+    end
+    return false
+end
+
+local function find_extra_egb_chest()
+    local actors = actors_manager.get_all_actors()
+    if type(actors) ~= "table" then return nil end
+    local best, best_dist = nil, math.huge
+    local lp = get_local_player()
+    local pp = lp and lp:get_position()
+    for _, a in pairs(actors) do
+        if _interactable(a) then
+            local n = a:get_skin_name()
+            if type(n) == "string" and n:find("^EGB_Chest") then
+                local apos = a:get_position()
+                if not _was_already_opened(apos) then
+                    local d = pp and pp:dist_to(apos) or 0
+                    if d < best_dist then best = a; best_dist = d end
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function find_nemesis_portal()
+    local actors = actors_manager.get_all_actors()
+    if type(actors) ~= "table" then return nil end
+    local target_name = enums.misc.nemesis_portal
+    local best, best_dist = nil, math.huge
+    local lp = get_local_player()
+    local pp = lp and lp:get_position()
+    for _, a in pairs(actors) do
+        local n = a:get_skin_name()
+        if type(n) == "string" and n == target_name then
+            local d = pp and pp:dist_to(a:get_position()) or 0
+            if d < best_dist then best = a; best_dist = d end
         end
     end
     return best
@@ -109,15 +184,30 @@ end
 local task = { name = "Open Chest" }
 
 function task.shouldExecute()
-    if not in_target_boss_zone() then
+    -- Hand off entirely to nemesis_fight while it's running; we'll resume
+    -- (or stay IDLE) once the run is counted there.
+    if tracker.nemesis_entered then
+        return false
+    end
+
+    local zone_ok = in_target_boss_zone()
+
+    -- NEMESIS_APPROACH straddles the zone boundary: the player interacts with
+    -- the portal while still in the boss zone, then leaves it. Execute uses the
+    -- zone change as the handoff trigger, so don't reset state mid-transition.
+    if not zone_ok and phase ~= "NEMESIS_APPROACH" then
         if phase ~= "IDLE" then
             set_phase("IDLE")
-            no_despawn_count = 0
+            no_despawn_count   = 0
+            home_zone_prefix   = nil
+            nemesis_portal_pos = nil
         end
         return false
     end
-    -- Active mid-sequence
-    if phase == "WAIT_GONE" or phase == "WAIT_COMPLETE" then
+    -- Active mid-sequence (any non-IDLE phase keeps us in control)
+    if phase == "WAIT_GONE" or phase == "EXTRAS"
+            or phase == "NEMESIS_LOOK" or phase == "NEMESIS_APPROACH"
+            or phase == "WAIT_COMPLETE" then
         return true
     end
     -- Trigger on EGB/boss chest visibility
@@ -153,6 +243,11 @@ function task.Execute()
         tracker.chest_opened_time = os.time()
         last_chest_pos = chest:get_position()
 
+        -- Remember which boss-zone we were in so the nemesis-phase guards stay
+        -- coherent once we leave it via the portal.
+        local boss = rotation.current()
+        home_zone_prefix = boss and boss.zone_prefix or nil
+
         -- Signal Belial chest UI task
         local n = chest:get_skin_name()
         if type(n) == "string" and n:find("^Boss_WT_Belial_") then
@@ -169,9 +264,9 @@ function task.Execute()
         local chest = find_egb_chest()
 
         if chest == nil then
-            -- Chest gone – run is complete (no theme chest to chase any more).
+            -- Main chest gone – sweep for any extra EGB chests that spawned alongside it.
             no_despawn_count = 0
-            set_phase("WAIT_COMPLETE")
+            set_phase("EXTRAS")
             return
         end
 
@@ -215,6 +310,107 @@ function task.Execute()
                 last_interact_time = get_time_since_inject()
             end
             set_phase("WAIT_GONE")
+        end
+        return
+    end
+
+    -- ---- EXTRAS: sweep for additional EGB chests that spawned alongside main ----
+    if phase == "EXTRAS" then
+        if phase_elapsed() >= EXTRAS_PHASE_TIMEOUT then
+            console.print(string.format("[Chest] EXTRAS timeout (%ds) — moving on (%d extras opened).",
+                EXTRAS_PHASE_TIMEOUT, #extras_done_positions))
+            extras_done_positions = {}
+            set_phase("NEMESIS_LOOK")
+            return
+        end
+
+        local chest = find_extra_egb_chest()
+        if not chest then
+            if #extras_done_positions > 0 then
+                console.print(string.format("[Chest] EXTRAS done — opened %d extra chest(s).",
+                    #extras_done_positions))
+            end
+            extras_done_positions = {}
+            set_phase("NEMESIS_LOOK")
+            return
+        end
+
+        local pos = chest:get_position()
+        if utils.distance_to(pos) > 2.5 then
+            pathfinder.request_move(pos)
+            return
+        end
+        if not cooldown_ok() then return end
+
+        interact_object(chest)
+        last_interact_time = get_time_since_inject()
+        table.insert(extras_done_positions, pos)
+        console.print(string.format("[Chest] Opened extra EGB chest #%d.",
+            #extras_done_positions))
+        return
+    end
+
+    -- ---- NEMESIS_LOOK: brief scan for the random Warplans_Portal_NemesisPortal ----
+    if phase == "NEMESIS_LOOK" then
+        local portal = find_nemesis_portal()
+        if portal then
+            nemesis_portal_pos = portal:get_position()
+            nemesis_interact_t = 0
+            console.print(string.format(
+                "[Chest] Nemesis portal detected — approaching (dist=%.1f).",
+                utils.distance_to(nemesis_portal_pos)))
+            set_phase("NEMESIS_APPROACH")
+            return
+        end
+        if phase_elapsed() >= NEMESIS_LOOK_SECS then
+            set_phase("WAIT_COMPLETE")
+        end
+        return
+    end
+
+    -- ---- NEMESIS_APPROACH: walk to portal, interact, hand off on zone change ----
+    if phase == "NEMESIS_APPROACH" then
+        -- Zone change = we entered the portal. Hand off to nemesis_fight.
+        if not in_target_boss_zone() then
+            console.print("[Chest] Zone change detected — entered Nemesis lair, handing off.")
+            tracker.nemesis_entered     = true
+            tracker.nemesis_resolved    = false
+            tracker.nemesis_last_kill_t = 0
+            nemesis_portal_pos = nil
+            home_zone_prefix   = nil
+            last_chest_pos     = nil
+            set_phase("IDLE")
+            return
+        end
+
+        if phase_elapsed() >= NEMESIS_APPROACH_SECS then
+            console.print(string.format(
+                "[Chest] Nemesis approach timeout (%ds) — skipping bonus.",
+                NEMESIS_APPROACH_SECS))
+            nemesis_portal_pos = nil
+            set_phase("WAIT_COMPLETE")
+            return
+        end
+
+        local portal = find_nemesis_portal()
+        local target_pos = portal and portal:get_position() or nemesis_portal_pos
+        if not target_pos then
+            -- Portal vanished before we could reach it; fall through.
+            console.print("[Chest] Nemesis portal lost — skipping bonus.")
+            set_phase("WAIT_COMPLETE")
+            return
+        end
+
+        if utils.distance_to(target_pos) > 2.5 then
+            pathfinder.request_move(target_pos)
+            return
+        end
+
+        local t = get_time_since_inject()
+        if portal and (t - nemesis_interact_t) >= NEMESIS_INTERACT_CD then
+            interact_object(portal)
+            nemesis_interact_t = t
+            console.print("[Chest] Interacting with Nemesis portal.")
         end
         return
     end

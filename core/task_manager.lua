@@ -45,6 +45,7 @@ end
 local task_files = {
     "alfred",           -- yield to Alfred when needed
     "revive",           -- handle death before anything else
+    "nemesis_fight",    -- drive Nemesis-portal bonus encounter (must preempt navigate_to_boss)
     "dungeon_reset",    -- reset dungeons every N runs (between boss zones)
     "belial_chest",     -- handle Belial chest UI before generic chest task
     "navigate_to_boss", -- teleport + walk to entrance

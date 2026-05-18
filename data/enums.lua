@@ -112,6 +112,7 @@ enums.misc = {
     portal           = "TownPortal",
     suppressor       = "monsterAffix_suppressor_barrier",
     dungeon_entrance = "Portal_Dungeon_Generic",
+    nemesis_portal   = "Warplans_Portal_NemesisPortal",
 }
 
 -- -------------------------------------------------------
