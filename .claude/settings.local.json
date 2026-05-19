@@ -2,7 +2,16 @@
   "permissions": {
     "allow": [
       "Bash(chmod +x /tmp/compare.sh)",
-      "Bash(/tmp/compare.sh)"
+      "Bash(/tmp/compare.sh)",
+      "Bash(git stash *)",
+      "Bash(git tag *)",
+      "Bash(git push *)",
+      "Bash(gh pr *)",
+      "Bash(gh release edit v2.2 --notes ' *)",
+      "Bash(gh release *)",
+      "Bash(xargs -I{} git show --format=\"%ae\" -s {})",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }
