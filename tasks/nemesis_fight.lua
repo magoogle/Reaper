@@ -24,11 +24,35 @@ local utils    = require "core.utils"
 local tracker  = require "core.tracker"
 local rotation = require "core.boss_rotation"
 local settings = require "core.settings"
+local enums    = require "data.enums"
 
-local NO_KILL_TIMEOUT  = 30.0  -- seconds with no enemy death → run complete
-local LAIR_LOAD_TIMEOUT = 35.0 -- bail out if zone never becomes the lair (e.g. interact missed)
-local ENEMY_SCAN_RANGE = 50    -- target_selector radius for alive-enemy count
-local LAIR_ZONE_PATTERN = "^Warplans_Boss_NemesisLair"
+local NO_KILL_TIMEOUT       = 30.0  -- seconds with no enemy death → run complete
+-- Bail-out cap if the lair zone never loads. Bumped from 35s -> 60s so the
+-- portal-retry loop below has room for ~10 attempts at 5s cadence.
+local LAIR_LOAD_TIMEOUT     = 60.0
+-- The portal interact -> zone change can take ~5s server-side; retry only
+-- once per cadence so we don't spam interact while the load is in flight.
+local PORTAL_RETRY_INTERVAL = 5.0
+local PORTAL_INTERACT_RANGE = 2.5
+local ENEMY_SCAN_RANGE      = 50    -- target_selector radius for alive-enemy count
+local LAIR_ZONE_PATTERN     = "^Warplans_Boss_NemesisLair"
+
+local function find_nemesis_portal()
+    local actors = actors_manager.get_all_actors()
+    if type(actors) ~= "table" then return nil end
+    local target_name = enums.misc.nemesis_portal
+    local best, best_dist = nil, math.huge
+    local lp = get_local_player()
+    local pp = lp and lp:get_position()
+    for _, a in pairs(actors) do
+        local n = a:get_skin_name()
+        if type(n) == "string" and n == target_name then
+            local d = pp and pp:dist_to(a:get_position()) or 0
+            if d < best_dist then best = a; best_dist = d end
+        end
+    end
+    return best
+end
 
 local STATE = {
     IDLE        = "IDLE",
@@ -43,6 +67,8 @@ local s = {
     last_count      = nil,
     last_log_t      = -999,
     idle_armed_t    = nil,  -- timestamp we first started waiting for the lair zone
+    last_retry_t    = nil,  -- last portal re-interact attempt (IDLE retry loop)
+    retry_count     = 0,    -- count of re-interacts fired; primary interact lives in open_chest
 }
 
 local function now()         return get_time_since_inject() end
@@ -70,6 +96,8 @@ function task.reset()
     s.last_count   = nil
     s.last_log_t   = -999
     s.idle_armed_t = nil
+    s.last_retry_t = nil
+    s.retry_count  = 0
 end
 
 function task.shouldExecute()
@@ -88,16 +116,47 @@ function task.Execute()
     -- completes. The explicit zone check below ensures the 30s no-kill timer
     -- doesn't start counting while we're still on the loading screen, which
     -- would eat into the actual fight window.
+    --
+    -- The portal's first interact occasionally fails to take (server lag,
+    -- animation interrupt, knockback). open_chest fires interact exactly once
+    -- and hands off; if the zone never flips, we have to retry from here.
+    -- Re-interact every PORTAL_RETRY_INTERVAL while we're still in the boss
+    -- zone with the portal actor still visible. The server-side teleport
+    -- can take ~5s, so don't spam interact in between attempts.
     if s.state == STATE.IDLE then
-        if not s.idle_armed_t then s.idle_armed_t = t end
+        if not s.idle_armed_t then
+            s.idle_armed_t = t
+            -- Treat the open_chest interact as "attempt 0" — start the retry
+            -- cadence from now so the first re-interact fires ~5s after handoff.
+            s.last_retry_t = t
+            s.retry_count  = 0
+        end
 
         if not in_lair() then
             if (t - s.idle_armed_t) >= LAIR_LOAD_TIMEOUT then
                 console.print(string.format(
-                    "[Nemesis] Lair zone never confirmed after %.0fs — bailing to %s.",
-                    LAIR_LOAD_TIMEOUT, settings.town_zone))
+                    "[Nemesis] Lair zone never confirmed after %.0fs (%d retries) — bailing to %s.",
+                    LAIR_LOAD_TIMEOUT, s.retry_count, settings.town_zone))
                 teleport_to_waypoint(settings.town_waypoint)
                 set_state(STATE.TELEPORTING)
+                return
+            end
+
+            if (t - (s.last_retry_t or t)) >= PORTAL_RETRY_INTERVAL then
+                local portal = find_nemesis_portal()
+                if portal then
+                    local ppos = portal:get_position()
+                    if utils.distance_to(ppos) > PORTAL_INTERACT_RANGE then
+                        pathfinder.request_move(ppos)
+                    else
+                        interact_object(portal)
+                        s.retry_count = s.retry_count + 1
+                        console.print(string.format(
+                            "[Nemesis] Portal interact retry #%d (%.0fs elapsed, zone=%s).",
+                            s.retry_count, t - s.idle_armed_t, tostring(utils.get_zone())))
+                    end
+                end
+                s.last_retry_t = t
             end
             return
         end
@@ -105,6 +164,12 @@ function task.Execute()
         tracker.nemesis_last_kill_t = t
         s.last_count   = count_enemies()
         s.idle_armed_t = nil
+        s.last_retry_t = nil
+        if s.retry_count > 0 then
+            console.print(string.format(
+                "[Nemesis] Lair load took %d retry interact(s).", s.retry_count))
+        end
+        s.retry_count  = 0
         set_state(STATE.WATCHING)
         console.print(string.format(
             "[Nemesis] Entered lair (%s) — watching for kills (timeout=%ds, enemies=%d).",
